@@ -6,9 +6,7 @@ add_subdirectory(libE57Format)
 PDAL_ADD_PLUGIN(e57plugin_reader reader e57
         FILES
             io/E57Reader.cpp
-            io/Scan.cpp
-            io/Utils.cpp
-            io/Uuid.cpp
+            io/Utilities.cpp
         LINK_WITH
             E57Format
             ${XercesC_LIBRARY}
@@ -33,8 +31,7 @@ if (WITH_TESTS)
     PDAL_ADD_TEST(pdal_io_e57_read_test
             FILES
                 test/E57ReaderTest.cpp
-                test/ScanTest.cpp
-                test/E57UtilsTest.cpp
+                test/E57UtilitiesTest.cpp
             LINK_WITH
                 ${e57plugin_reader}
                 E57Format

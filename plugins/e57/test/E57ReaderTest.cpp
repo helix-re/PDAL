@@ -36,7 +36,7 @@
 #include "Support.hpp"
 
 #include "plugins/e57/io/E57Reader.hpp"
-#include "plugins/e57/io/Utils.hpp"
+#include "plugins/e57/io/Utilities.hpp"
 
 using namespace pdal;
 
@@ -51,40 +51,6 @@ TEST(E57Reader, testCtr)
     ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::X));
 }
 
-TEST(E57Reader, testGetDimension) 
-{
-    Options ops;
-    ops.add("filename", Support::datapath("e57/A_B.e57"));
-    E57Reader reader;
-    reader.setOptions(ops);
-    PointTable table;
-    reader.prepare(table);
-
-    auto dimensions = reader.getDimensions();
-    ASSERT_EQ(dimensions.size(),7u);
-    std::vector<std::string> expectedDimensions = {"cartesianX","cartesianY","cartesianZ",
-        "colorRed","colorGreen","colorBlue","intensity"};
-    for (auto dim: expectedDimensions)
-    {
-        ASSERT_TRUE(dimensions.find(dim) != dimensions.end());
-    }
-}
-
-TEST(E57Reader, testPreview)
-{
-    Options ops;
-    ops.add("filename", Support::datapath("e57/A_B.e57"));
-    E57Reader reader;
-    reader.setOptions(ops);
-    auto qi = reader.preview();
-
-    auto dimensions = qi.m_dimNames;
-    ASSERT_EQ(dimensions.size(),7u);
-    ASSERT_EQ(qi.m_pointCount,6u);
-    ASSERT_TRUE(qi.m_valid);
-    ASSERT_TRUE(qi.m_bounds.valid());
-}
-
 TEST(E57Reader, testHeader) 
 {
     Options ops;
@@ -93,29 +59,16 @@ TEST(E57Reader, testHeader)
     reader.setOptions(ops);
     PointTable table;
     reader.prepare(table);
-
-    auto expectedE57Dimensions = reader.getDimensions();
-    for (auto& e57Dim: expectedE57Dimensions)
-    {
-        ASSERT_TRUE(table.layout()->hasDim(pdal::e57plugin::e57ToPdal(e57Dim)));
-    }
-}
-
-TEST(E57Reader, pointCount)
-{
-    E57Reader reader(Support::datapath("e57/A4.e57"));
-    auto count = reader.getNumberPoints();
-    ASSERT_EQ(count,4u);
-}
-
-TEST(E57Reader, getScans)
-{
-    E57Reader reader(Support::datapath("e57/A_B.e57"));
-    auto scans = reader.getScans();
-    ASSERT_EQ(scans.size(),2u);
-    E57Reader reader2(Support::datapath("e57/A4.e57"));
-    scans = reader2.getScans();
-    ASSERT_EQ(scans.size(),1u);
+	ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::X));
+	ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::Y));
+	ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::Z));
+	ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::Blue));
+	ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::Green));
+	ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::Red));
+	ASSERT_TRUE(table.layout()->hasDim(Dimension::Id::Intensity));
+    ASSERT_FALSE(table.layout()->hasDim(Dimension::Id::NormalX));
+    ASSERT_FALSE(table.layout()->hasDim(Dimension::Id::NormalY));
+    ASSERT_FALSE(table.layout()->hasDim(Dimension::Id::NormalZ));
 }
 
 TEST(E57Reader, testRead) 

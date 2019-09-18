@@ -35,53 +35,42 @@
 #pragma once
 
 #include <E57Format.h>
-#include <pdal/Reader.hpp>
-#include <pdal/Streamable.hpp>
-
+#include <pdal/Dimension.hpp>
+#include <pdal/PointRef.hpp>
 namespace pdal
 {
-
-using namespace e57;
-using namespace std;
-
-class PDAL_DLL E57Reader : public Reader, public Streamable
+namespace e57plugin
 {
-public:
-    E57Reader();
-    std::string getName() const override;
+	/// converts a E57 string to the corresponding pdal dimension.
+	/// returns pdal::Dimension::Id::Unknown in case the dimension is
+	/// not recognised
+	PDAL_DLL inline Dimension::Id e57ToPdal(const std::string& e57Dimension);
 
-private:
-    /* Pdal section */
-    virtual void addDimensions(PointLayoutPtr layout) override;
-    virtual void initialize() override;
-    virtual point_count_t read(PointViewPtr view, point_count_t count) override;
-    virtual void done(PointTableRef table) override;
-    virtual bool processOne(PointRef&) override;
-    virtual void ready(PointTableRef&) override;
+	/// Applies rotation and translation on point.
+	PDAL_DLL inline void transformPoint(PointRef& pt, const double rotation[3][3],
+										const double m_translation[3]);
+	
+	/// Returns a list of PDAL supported E57 dimensions.
+	PDAL_DLL inline std::vector<std::string> supportedE57Types();
 
-    // Private members
-    bool fillPoint(PointRef& point);
-    point_count_t readNextBatch();
-    void setupReader();
+	/// Decodes pose for the scan (if any). Pose is nothing but a transformation to be applied on a scan.
+	/// If pose is present, this will return true and modify rotation and translation matrices accordingly
+	/// otherwise returns false and donot modify rotation and translation matrices.
+	/// If pose is present but no rotation then rotation matrix will be a Identity matrix.
+	/// If pose is present but no translation then translation matrix will be [0, 0, 0].
+	PDAL_DLL bool getPose(const e57::StructureNode scan,
+									double (&rotation)[3][3], double (&translation)[3]);
 
-    std::unique_ptr<ImageFile> m_imf;
-    std::unique_ptr<VectorNode> m_data3D;
-    std::unique_ptr<CompressedVectorReader> m_reader;
-    std::unique_ptr<StructureNode> m_e57PointPrototype;
+	/// Returns total number of points in data3D.
+	/// Where data3D is a "/data3D" node from E57 hierarchy.
+	PDAL_DLL point_count_t numPoints(const e57::VectorNode data3D);
 
-    std::map<std::string, std::vector<double>> m_doubleBuffers;
-    std::map<pdal::Dimension::Id, double> m_rescaleFactors;
-    vector<SourceDestBuffer> m_destBuffers;
-
-    point_count_t m_currentIndex;
-    point_count_t m_pointsInCurrentBatch;
-    point_count_t m_defaultChunkSize;
-    signed int m_currentScan;
-
-    // Pose information
-    double m_translation[3] = {0};
-    double m_rotation[3][3] = {{0}};
-    bool m_hasPose = false;
-};
+	/// Tries to find the limit of a dimension in the e57 node headers
+    /// if found, Fill minmax with minimum limit and maximum limit and return true otherwise returns false.
+	/// if not found, minmax will be a pair of {0.0, 0.0} (double values).
+    PDAL_DLL bool getLimits(const e57::StructureNode& scan,
+                            const std::string& fieldName,
+                            std::pair<double, double>& minmax);
+    } // namespace e57plugin
 
 } // namespace pdal
