@@ -38,8 +38,7 @@
 namespace pdal
 {
 
-static PluginInfo const s_info{"readers.e57", "Reader for E57 files",
-                               ""};
+static PluginInfo const s_info{"readers.e57", "Reader for E57 files", ""};
 
 CREATE_SHARED_STAGE(E57Reader, s_info)
 
@@ -117,30 +116,30 @@ void E57Reader::ready(PointTableRef& ref)
              e57::E57_SCALED_INTEGER));
     }
 
-	// Initial reader setup.
+    // Initial reader setup.
     setupReader();
 }
 
 /// Setup reader to read next scan if available.
 void E57Reader::setupReader()
 {
-	// Are we done with reading all scans?
+    // Are we done with reading all scans?
     if (++m_currentScan >= m_data3D->childCount())
         return;
 
     try
     {
         StructureNode scan(m_data3D->get(m_currentScan));
-		
-        // Clear rescale factors for previous scan, If any.
-		m_rescaleFactors.clear();
 
-		// Get get rescale factors for new scan, These factors are only for colors and intensity.
-        // This is required Since,
+        // Clear rescale factors for previous scan, If any.
+        m_rescaleFactors.clear();
+
+        // Get get rescale factors for new scan, These factors are only for
+        // colors and intensity. This is required Since,
         // 1. E57 support colors in uint8 as well as uint16. This is specified
         //    in header as "colorLimits".
-        //		- If colorLimits is 0-255 the it is uint8 and if 0-65535 the it is
-        //        uint16.
+        //		- If colorLimits is 0-255 the it is uint8 and if 0-65535 the it
+        // is uint16.
         //		- To make this consistant, We are rescaling colors to 0-65535
         //        range, Since default types for colors in PDAL are Unsigned16.
         // 2. E57 supports intensity in float ranging 0-1.  This is specified in
@@ -149,25 +148,24 @@ void E57Reader::setupReader()
         //        intensity (between 0-1) need to be rescaled in uint16 (between
         //        0-65535).
         // To do the rescling we need a rescale factors so that we can directly
-        // multipy it with colors and intensity values. 
-		// E.g. - If color limit is 0-255 then rescale factor would be 257.00
+        // multipy it with colors and intensity values.
+        // E.g. - If color limit is 0-255 then rescale factor would be 257.00
         //        (double value) i.e 65535/(255-0)=257.
         //		- If color limit is 0-65535 then rescale factor would be 1.00
         //        (double value) i.e 65535/(65535-0)= 1.
-		for (auto& keyValue : m_doubleBuffers)
-		{
-			auto minmax = std::make_pair(0.0, 0.0);
-			if (e57plugin::getLimits(scan, keyValue.first, minmax))
-			{
-				m_rescaleFactors[e57plugin::e57ToPdal(keyValue.first)] =
-					(std::numeric_limits<uint16_t>::max)() /
-					(minmax.second - minmax.first);
-			}
-		}
-        
-		CompressedVectorNode points(scan.get("points"));
-        m_hasPose = e57plugin::getPose(scan, m_rotation,
-                                                        m_translation);
+        for (auto& keyValue : m_doubleBuffers)
+        {
+            auto minmax = std::make_pair(0.0, 0.0);
+            if (e57plugin::getLimits(scan, keyValue.first, minmax))
+            {
+                m_rescaleFactors[e57plugin::e57ToPdal(keyValue.first)] =
+                    (std::numeric_limits<uint16_t>::max)() /
+                    (minmax.second - minmax.first);
+            }
+        }
+
+        CompressedVectorNode points(scan.get("points"));
+        m_hasPose = e57plugin::getPose(scan, m_rotation, m_translation);
         m_reader.reset(
             new CompressedVectorReader(points.reader(m_destBuffers)));
     }
@@ -182,13 +180,13 @@ void E57Reader::setupReader()
 }
 
 /// Read the next batch of m_defaultChunkSize.
-/// This returns number of points aquired. 
+/// This returns number of points aquired.
 /// Returns 0 after finished reading of all scans.
 point_count_t E57Reader::readNextBatch()
 {
     m_currentIndex = 0;
 
-	// Are we done with reading all scans?
+    // Are we done with reading all scans?
     if (m_currentScan >= m_data3D->childCount())
         return 0;
 
@@ -196,8 +194,8 @@ point_count_t E57Reader::readNextBatch()
 
     if (!gotPoints)
     {
-		// Finished reading all points in current scan.
-		// Its time to setup reader at next scan.
+        // Finished reading all points in current scan.
+        // Its time to setup reader at next scan.
         m_reader->close();
         setupReader();
         return readNextBatch();
@@ -211,14 +209,14 @@ bool E57Reader::fillPoint(PointRef& point)
 {
     if (m_currentIndex >= m_pointsInCurrentBatch)
     {
-		// Either we are at very begining or finished processing all points in current batch.
-		// Its time to read new points batch.
+        // Either we are at very begining or finished processing all points in
+        // current batch. Its time to read new points batch.
         m_pointsInCurrentBatch = readNextBatch();
     }
 
     if (!m_pointsInCurrentBatch)
     {
-		// We're done with reding
+        // We're done with reding
         return false;
     }
 
@@ -228,7 +226,7 @@ bool E57Reader::fillPoint(PointRef& point)
 
         if (dim != Dimension::Id::Unknown)
         {
-			// Need to rescale?
+            // Need to rescale?
             if (m_rescaleFactors.find(dim) != m_rescaleFactors.end())
                 point.setField(dim, keyValue.second[m_currentIndex] *
                                         m_rescaleFactors[dim]);

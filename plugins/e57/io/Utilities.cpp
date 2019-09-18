@@ -74,7 +74,7 @@ Dimension::Id e57ToPdal(const std::string& e57Dimension)
 }
 
 void transformPoint(PointRef& pt, const double rotation[3][3],
-                              const double translation[3])
+                    const double translation[3])
 {
     auto x = pt.getFieldAs<double>(pdal::Dimension::Id::X);
     auto y = pt.getFieldAs<double>(pdal::Dimension::Id::Y);
@@ -99,18 +99,26 @@ std::vector<std::string> supportedE57Types()
 }
 
 bool getPose(const e57::StructureNode scan, double (&rotation)[3][3],
-                       double (&translation)[3])
+             double (&translation)[3])
 {
     bool hasPose = false;
     if (scan.isDefined("pose"))
     {
-		// Reset rotation and translation.
-        rotation[0][0] = 1; rotation[0][1] = 0;	rotation[0][2] = 0;
-        rotation[1][0] = 0; rotation[1][1] = 1;	rotation[1][2] = 0;
-        rotation[2][0] = 0; rotation[2][1] = 0;	rotation[2][2] = 1;
-        translation[0] = 0; translation[1] = 0; translation[2] = 0;
+        // Reset rotation and translation.
+        rotation[0][0] = 1;
+        rotation[0][1] = 0;
+        rotation[0][2] = 0;
+        rotation[1][0] = 0;
+        rotation[1][1] = 1;
+        rotation[1][2] = 0;
+        rotation[2][0] = 0;
+        rotation[2][1] = 0;
+        rotation[2][2] = 1;
+        translation[0] = 0;
+        translation[1] = 0;
+        translation[2] = 0;
 
-		hasPose=true;
+        hasPose = true;
 
         e57::StructureNode pose(scan.get("pose"));
         if (pose.isDefined("rotation"))
@@ -154,11 +162,10 @@ bool getPose(const e57::StructureNode scan, double (&rotation)[3][3],
     return hasPose;
 }
 
-
 point_count_t numPoints(const e57::VectorNode data3D)
 {
     point_count_t count(0);
-    int64_t scanCount=data3D.childCount();
+    int64_t scanCount = data3D.childCount();
     try
     {
         for (int scanIndex = 0; scanIndex < scanCount; scanIndex++)
@@ -182,7 +189,7 @@ point_count_t numPoints(const e57::VectorNode data3D)
 bool getLimits(const e57::StructureNode& prototype,
                const std::string& fieldName, std::pair<double, double>& minmax)
 {
-	// Reset minmax
+    // Reset minmax
     minmax.first = minmax.second = 0;
 
     std::string minKey = fieldName + "Minimum";
@@ -199,10 +206,12 @@ bool getLimits(const e57::StructureNode& prototype,
         e57::StructureNode intbox(prototype.get(boundingBoxName));
         if (intbox.get(maxKey).type() == e57::E57_SCALED_INTEGER)
         {
-            minmax.second = static_cast<e57::ScaledIntegerNode>(intbox.get(maxKey))
-                         .scaledValue();
-            minmax.first = static_cast<e57::ScaledIntegerNode>(intbox.get(minKey))
-                         .scaledValue();
+            minmax.second =
+                static_cast<e57::ScaledIntegerNode>(intbox.get(maxKey))
+                    .scaledValue();
+            minmax.first =
+                static_cast<e57::ScaledIntegerNode>(intbox.get(minKey))
+                    .scaledValue();
         }
         else if (intbox.get(maxKey).type() == e57::E57_FLOAT)
         {
@@ -256,7 +265,7 @@ bool getLimits(const e57::StructureNode& prototype,
         }
     }
     else
-		return false;
+        return false;
     return true;
 }
 
