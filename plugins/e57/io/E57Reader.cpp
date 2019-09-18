@@ -134,11 +134,11 @@ void E57Reader::setupReader()
         // Clear rescale factors for previous scan, If any.
         m_rescaleFactors.clear();
 
-        // Get get rescale factors for new scan, These factors are only for
+        // Get rescale factors for new scan, These factors are only for
         // colors and intensity. This is required Since,
         // 1. E57 support colors in uint8 as well as uint16. This is specified
         //    in header as "colorLimits".
-        //		- If colorLimits is 0-255 the it is uint8 and if 0-65535 the it
+        //		- If colorLimits is 0-255 then it is uint8 and if 0-65535 then it
         // is uint16.
         //		- To make this consistant, We are rescaling colors to 0-65535
         //        range, Since default types for colors in PDAL are Unsigned16.
@@ -147,8 +147,8 @@ void E57Reader::setupReader()
         //		- Since default type for intensity in PDAL is Unsigned16, E57
         //        intensity (between 0-1) need to be rescaled in uint16 (between
         //        0-65535).
-        // To do the rescling we need a rescale factors so that we can directly
-        // multipy it with colors and intensity values.
+        // To do the rescling we need the rescale factors so that we can directly
+        // multipy them with colors and intensity values.
         // E.g. - If color limit is 0-255 then rescale factor would be 257.00
         //        (double value) i.e 65535/(255-0)=257.
         //		- If color limit is 0-65535 then rescale factor would be 1.00
