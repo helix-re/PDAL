@@ -256,12 +256,6 @@ point_count_t E57Reader::read(PointViewPtr view, point_count_t count)
 
 bool E57Reader::processOne(PointRef& point)
 {
-    static point_count_t count = 0;
-    if (++count % 1000000 == 0)
-    {
-        std::cout << count << std::endl;
-    }
-
     return fillPoint(point);
 }
 
