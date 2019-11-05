@@ -43,7 +43,7 @@ struct AssignArgs;
 class PDAL_DLL MultiAssignFilter : public Filter, public Streamable
 {
 public:
-    MultiAssignFilter(){};
+    MultiAssignFilter() {};
 
     std::string getName() const
     {
@@ -59,7 +59,7 @@ private:
     MultiAssignFilter& operator=(const MultiAssignFilter&) = delete;
     MultiAssignFilter(const MultiAssignFilter&) = delete;
 
-	nlohmann::json m_json;
+    nlohmann::json m_json;
     std::vector<AssignArgs> m_assignments;
 };
 

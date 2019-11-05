@@ -42,7 +42,8 @@
 namespace pdal
 {
 
-static StaticPluginInfo const s_info{
+static StaticPluginInfo const s_info
+{
     "filters.multiassign",
     "Assign values for a dimension range to a specified value.",
     "http://pdal.io/stages/filters.multiassign.html"};
@@ -74,12 +75,12 @@ void MultiAssignFilter::prepared(PointTableRef table)
                 throwError("Invalid dimension name in 'assignment' option: '" +
                            assn.m_name + "'.");
             assignArgs.m_assignments.push_back(assn);
-		}
+        }
         if (a.contains("condition"))
         {
-			std::string condition = a.at("condition");
-			DimRange range;
-			range.parse(condition);
+            std::string condition = a.at("condition");
+            DimRange range;
+            range.parse(condition);
 
             range.m_id = layout->findDim(range.m_name);
             if (range.m_id == Dimension::Id::Unknown)
@@ -88,9 +89,9 @@ void MultiAssignFilter::prepared(PointTableRef table)
             assignArgs.m_condition = range;
         }
         m_assignments.push_back(assignArgs);
-	}
+    }
 
-	return;
+    return;
 }
 
 bool MultiAssignFilter::processOne(PointRef& point)
@@ -106,7 +107,7 @@ bool MultiAssignFilter::processOne(PointRef& point)
         for (auto& r : a.m_assignments)
             if (r.valuePasses(point.getFieldAs<double>(r.m_id)))
                 point.setField(r.m_id, r.m_value);
-	}
+    }
     return true;
 }
 
