@@ -67,8 +67,8 @@ namespace e57 {
          CheckedFile&    operator<<(uint64_t i);
          CheckedFile&    operator<<(float f);
          CheckedFile&    operator<<(double d);
-         void seek(off_t_ll offset, OffsetMode omode = Logical);
-         off_t_ll position(OffsetMode omode = Logical);
+         void			 seek(off_t_ll offset, OffsetMode omode = Logical);
+         off_t_ll		 position(OffsetMode omode = Logical);
          off_t_ll        length(OffsetMode omode = Logical);
          void            extend(off_t_ll newLength, OffsetMode omode = Logical);
          e57::ustring    fileName() const { return fileName_; }
@@ -95,7 +95,7 @@ namespace e57 {
 
          e57::ustring    fileName_;
          off_t_ll		 logicalLength_ = 0;
-         off_t_ll	  physicalLength_ = 0;
+         off_t_ll		 physicalLength_ = 0;
 
          ReadChecksumPolicy checkSumPolicy_ = CHECKSUM_POLICY_ALL;
 

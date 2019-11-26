@@ -156,8 +156,8 @@ void CheckedFile::read(char* buf, size_t nRead, size_t /*bufSize*/)
    //??? need to keep track of logical length?
    //??? check bufSize OK
 
-   const long long end = position(Logical) + nRead;
-   const long long logicalLength = length(Logical);
+   const off_t_ll end = position(Logical) + nRead;
+   const off_t_ll logicalLength = length(Logical);
 
    if (end > logicalLength)
    {
@@ -370,16 +370,16 @@ template<class FTYPE> CheckedFile& CheckedFile::writeFloatingPoint(FTYPE value, 
    return(*this << s);
 }
 
-void CheckedFile::seek(long long offset, OffsetMode omode)
+void CheckedFile::seek(off_t_ll offset, OffsetMode omode)
 {
    //??? check for seek beyond logicalLength_
-   const auto pos = static_cast<long long>(omode==Physical ? offset : logicalToPhysical(offset));
+   const auto pos = static_cast<off_t_ll>(omode==Physical ? offset : logicalToPhysical(offset));
    portableSeek(pos, SEEK_SET);
 }
 
-long long CheckedFile::portableSeek(long long offset, int whence)
+off_t_ll CheckedFile::portableSeek(off_t_ll offset, int whence)
 {
-   long long result;
+   off_t_ll result;
 #ifdef _WIN32
    result = _lseeki64(fd_, offset, whence);
 #elif defined(LINUX) || defined(MACOS)
@@ -399,10 +399,10 @@ long long CheckedFile::portableSeek(long long offset, int whence)
    return result;
 }
 
-long long CheckedFile::position(OffsetMode omode)
+off_t_ll CheckedFile::position(OffsetMode omode)
 {
    /// Get current file cursor position
-    const long long pos = portableSeek(0LL, SEEK_CUR);
+    const off_t_ll pos = portableSeek(0LL, SEEK_CUR);
 
    if ( omode == Physical )
    {
@@ -412,7 +412,7 @@ long long CheckedFile::position(OffsetMode omode)
    return physicalToLogical( pos );
 }
 
-long long CheckedFile::length(OffsetMode omode)
+off_t_ll CheckedFile::length(OffsetMode omode)
 {
    if ( omode == Physical )
    {
@@ -422,10 +422,10 @@ long long CheckedFile::length(OffsetMode omode)
       }
 
       // Current file position
-      long long original_pos = portableSeek(0LL, SEEK_CUR);
+      off_t_ll original_pos = portableSeek(0LL, SEEK_CUR);
 
       // End file position
-      long long end_pos = portableSeek( 0LL, SEEK_END );
+      off_t_ll end_pos = portableSeek( 0LL, SEEK_END );
 
       // Restore original position
       portableSeek( original_pos, SEEK_SET );
@@ -613,7 +613,7 @@ void CheckedFile::verifyChecksum( char *page_buffer, size_t page )
 
 void CheckedFile::getCurrentPageAndOffset(off_t_ll& page, size_t& pageOffset, OffsetMode omode)
 {
-    const long long pos = position(omode);
+    const off_t_ll pos = position(omode);
 
    if (omode == Physical)
    {
