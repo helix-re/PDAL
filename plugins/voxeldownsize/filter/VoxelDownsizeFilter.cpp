@@ -64,7 +64,7 @@ void VoxelDownsizeFilter::addArgs(ProgramArgs& args)
 {
     args.add("cell", "Cell size", m_cell, 0.001);
     args.add("mode", "Method for downsizing : voxelcenter / firstinvoxel",
-        m_mode, "voxelcenter");
+             m_mode, "voxelcenter");
 }
 
 
@@ -81,9 +81,10 @@ void VoxelDownsizeFilter::ready(PointTableRef)
     leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, &m_ldb);
     assert(status.ok());
     m_pool.reset(new Pool(10));
-    
+
 }
-void VoxelDownsizeFilter::prepared(PointTableRef) {
+void VoxelDownsizeFilter::prepared(PointTableRef)
+{
     if (m_mode.compare("voxelcenter")!=0 && m_mode.compare("firstinvoxel")!=0)
         throw pdal_error("Invalid Downsizing mode");
 
@@ -128,14 +129,17 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
     {
         std::set<std::tuple<int, int, int>> tempMap;
         std::swap(tempMap, m_populatedVoxels);
-        m_pool->add([this, tempMap](){
+        m_pool->add([this, tempMap]()
+        {
             Pool localPool(100);
             std::set<std::tuple<int, int, int>>::iterator itr = tempMap.begin();
-            for(unsigned int i = (std::min)(tempMap.size(), m_ldbSyncChunkSize); itr != tempMap.end(); i = (std::min)(tempMap.size(), i + m_ldbSyncChunkSize)){
+            for (unsigned int i = (std::min)(tempMap.size(), m_ldbSyncChunkSize); itr != tempMap.end(); i = (std::min)(tempMap.size(), i + m_ldbSyncChunkSize))
+            {
                 std::set<std::tuple<int, int, int>>::iterator tempItr = itr;
                 std::advance(itr, i);
                 std::set<std::tuple<int, int, int>> syncSet(tempItr, itr);
-                localPool.add([this, syncSet](){
+                localPool.add([this, syncSet]()
+                {
                     leveldb::WriteBatch batch;
                     for (auto itr=syncSet.begin(); itr!=syncSet.end(); ++itr)
                     {
@@ -203,7 +207,8 @@ bool VoxelDownsizeFilter::processOne(PointRef& point)
     return voxelize(point);
 }
 
-void VoxelDownsizeFilter::done(PointTableRef) {
+void VoxelDownsizeFilter::done(PointTableRef)
+{
     m_pool->await();
     delete m_ldb;
 }
