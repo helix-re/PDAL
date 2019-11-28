@@ -131,7 +131,7 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
         m_pool->add([this, tempMap](){
             Pool localPool(100);
             std::set<std::tuple<int, int, int>>::iterator itr = tempMap.begin();
-            for(unsigned int i = std::min(tempMap.size(), m_ldbSyncChunkSize); itr != tempMap.end(); i = std::min(tempMap.size(), i + m_ldbSyncChunkSize)){
+            for(unsigned int i = (std::min)(tempMap.size(), m_ldbSyncChunkSize); itr != tempMap.end(); i = (std::min)(tempMap.size(), i + m_ldbSyncChunkSize)){
                 std::set<std::tuple<int, int, int>>::iterator tempItr = itr;
                 std::advance(itr, i);
                 std::set<std::tuple<int, int, int>> syncSet(tempItr, itr);
