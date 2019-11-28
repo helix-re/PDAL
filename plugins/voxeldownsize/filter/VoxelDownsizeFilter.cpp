@@ -37,6 +37,7 @@
 #include "VoxelDownsizeFilter.hpp"
 #include <arbiter/arbiter.hpp>
 #include "leveldb/cache.h"
+#include <algorithm>
 
 namespace pdal
 {
@@ -80,7 +81,7 @@ void VoxelDownsizeFilter::ready(PointTableRef)
     leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, &m_ldb);
     assert(status.ok());
     m_pool.reset(new Pool(10));
-
+    
 }
 void VoxelDownsizeFilter::prepared(PointTableRef) {
     if (m_mode.compare("voxelcenter")!=0 && m_mode.compare("firstinvoxel")!=0)
@@ -108,10 +109,10 @@ PointViewSet VoxelDownsizeFilter::run(PointViewPtr view)
 
 bool VoxelDownsizeFilter::find(int gx, int gy, int gz)
 {
-    //m_pool->await();
     auto itr = m_populatedVoxels.find(std::make_tuple(gx, gy, gz));
     if (itr == m_populatedVoxels.end())
     {
+        m_pool->await();
         std::string val;
         leveldb::Status s = m_ldb->Get(
                                 leveldb::ReadOptions(),
@@ -125,19 +126,31 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
 {
     if (m_populatedVoxels.size() > m_batchSize)
     {
-        std::set<std::tuple<int, int, int>> tempMap = m_populatedVoxels;
-        leveldb::WriteBatch batch;
-        for (auto itr=tempMap.begin(); itr!=tempMap.end(); ++itr)
-        {
-            auto t=*itr;
-            auto val = std::to_string(std::get<0>(t)) +
-                       std::to_string(std::get<1>(t)) +
-                       std::to_string(std::get<2>(t));
-            batch.Put(val,val);
-        }
-        auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
-        assert(res);
-        m_populatedVoxels.clear();
+        std::set<std::tuple<int, int, int>> tempMap;
+        std::swap(tempMap, m_populatedVoxels);
+        m_pool->add([this, tempMap](){
+            Pool localPool(100);
+            std::set<std::tuple<int, int, int>>::iterator itr = tempMap.begin();
+            for(unsigned int i = std::min(tempMap.size(), m_ldbSyncChunkSize); itr != tempMap.end(); i = std::min(tempMap.size(), i + m_ldbSyncChunkSize)){
+                std::set<std::tuple<int, int, int>>::iterator tempItr = itr;
+                std::advance(itr, i);
+                std::set<std::tuple<int, int, int>> syncSet(tempItr, itr);
+                localPool.add([this, syncSet](){
+                    leveldb::WriteBatch batch;
+                    for (auto itr=syncSet.begin(); itr!=syncSet.end(); ++itr)
+                    {
+                        auto t=*itr;
+                        auto val = std::to_string(std::get<0>(t)) +
+                                   std::to_string(std::get<1>(t)) +
+                                   std::to_string(std::get<2>(t));
+                        batch.Put(val,val);
+                    }
+                    auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
+                    assert(res);
+                });
+            }
+            localPool.await();
+        });
     }
     return m_populatedVoxels.insert(std::make_tuple(gx, gy, gz)).second;
 }
@@ -191,6 +204,7 @@ bool VoxelDownsizeFilter::processOne(PointRef& point)
 }
 
 void VoxelDownsizeFilter::done(PointTableRef) {
+    m_pool->await();
     delete m_ldb;
 }
 
