@@ -78,9 +78,9 @@ void VoxelDownsizeFilter::ready(PointTableRef)
     std::time_t time;
     std::time(&time);
     std::string dbPath = arbiter::getTempPath() + "/" + std::to_string(time);
-    leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, &m_ldb);
+    leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, (leveldb::DB**)&m_ldb);
     assert(status.ok());
-    m_pool.reset(new Pool(10));
+    m_pool.reset(new Pool(10, 10));
 
 }
 void VoxelDownsizeFilter::prepared(PointTableRef)
@@ -133,7 +133,7 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
         auto chunkSize = m_ldbSyncChunkSize;
         m_pool->add([chunkSize, temp_ldb, tempMap]()
         {
-            Pool localPool(100);
+            Pool localPool(100, 10);
             auto itr = tempMap.begin();
             for (unsigned int i = (std::min)(tempMap.size(), chunkSize); itr != tempMap.end(); i = (std::min)(tempMap.size(), i + chunkSize))
             {
@@ -154,9 +154,11 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
                     auto res = temp_ldb->Write(leveldb::WriteOptions(), &batch).ok();
                     assert(res);
                 });
+                localPool.go();
             }
             localPool.await();
         });
+        m_pool->go();
     }
     return m_populatedVoxels.insert(std::make_tuple(gx, gy, gz)).second;
 }
@@ -211,8 +213,8 @@ bool VoxelDownsizeFilter::processOne(PointRef& point)
 
 void VoxelDownsizeFilter::done(PointTableRef)
 {
-    m_pool->await();
-    delete m_ldb;
+    m_pool.release();
+    m_ldb.reset();
 }
 
 } // namespace pdal
