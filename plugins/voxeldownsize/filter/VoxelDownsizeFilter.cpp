@@ -129,27 +129,29 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
     {
         std::set<std::tuple<int, int, int>> tempMap;
         std::swap(tempMap, m_populatedVoxels);
-        m_pool->add([this, tempMap]()
+        auto temp_ldb = m_ldb;
+        auto chunkSize = m_ldbSyncChunkSize;
+        m_pool->add([chunkSize, temp_ldb, tempMap]()
         {
             Pool localPool(100);
-            std::set<std::tuple<int, int, int>>::iterator itr = tempMap.begin();
-            for (unsigned int i = (std::min)(tempMap.size(), m_ldbSyncChunkSize); itr != tempMap.end(); i = (std::min)(tempMap.size(), i + m_ldbSyncChunkSize))
+            auto itr = tempMap.begin();
+            for (unsigned int i = (std::min)(tempMap.size(), chunkSize); itr != tempMap.end(); i = (std::min)(tempMap.size(), i + chunkSize))
             {
-                std::set<std::tuple<int, int, int>>::iterator tempItr = itr;
+                auto tempItr = itr;
                 std::advance(itr, i);
                 std::set<std::tuple<int, int, int>> syncSet(tempItr, itr);
-                localPool.add([this, syncSet]()
+                localPool.add([temp_ldb, syncSet]()
                 {
                     leveldb::WriteBatch batch;
-                    for (auto itr=syncSet.begin(); itr!=syncSet.end(); ++itr)
+                    for (auto itr = syncSet.begin(); itr != syncSet.end(); ++itr)
                     {
                         auto t=*itr;
-                        auto val = std::to_string(std::get<0>(t)) +
+                        auto key = std::to_string(std::get<0>(t)) +
                                    std::to_string(std::get<1>(t)) +
                                    std::to_string(std::get<2>(t));
-                        batch.Put(val,val);
+                        batch.Put(key,"1");
                     }
-                    auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
+                    auto res = temp_ldb->Write(leveldb::WriteOptions(), &batch).ok();
                     assert(res);
                 });
             }
