@@ -129,7 +129,7 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
     {
         std::set<std::tuple<int, int, int>> tempMap;
         std::swap(tempMap, m_populatedVoxels);
-        auto temp_ldb = m_ldb;
+        auto temp_ldb = m_ldb.get();
         auto chunkSize = m_ldbSyncChunkSize;
         m_pool->add([chunkSize, temp_ldb, tempMap]()
         {
@@ -213,8 +213,8 @@ bool VoxelDownsizeFilter::processOne(PointRef& point)
 
 void VoxelDownsizeFilter::done(PointTableRef)
 {
-    m_pool.release();
-    m_ldb.reset();
+    delete m_pool.release();
+    delete m_ldb.release();
 }
 
 } // namespace pdal

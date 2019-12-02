@@ -76,7 +76,7 @@ private:
     std::string m_mode;
 
     bool m_isFirstInVoxelMode; // True: firstinvoxel mode, False: voxelcenter mode
-    std::shared_ptr<leveldb::DB> m_ldb;
+    std::unique_ptr<leveldb::DB> m_ldb;
     point_count_t m_batchSize = 10000000;
     point_count_t m_ldbSyncChunkSize = 100000;
     std::unique_ptr<Pool> m_pool;
