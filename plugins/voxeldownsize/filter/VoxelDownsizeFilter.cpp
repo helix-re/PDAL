@@ -37,6 +37,7 @@
 #include "VoxelDownsizeFilter.hpp"
 #include <arbiter/arbiter.hpp>
 #include "leveldb/cache.h"
+#include <algorithm>
 
 namespace pdal
 {
@@ -63,7 +64,7 @@ void VoxelDownsizeFilter::addArgs(ProgramArgs& args)
 {
     args.add("cell", "Cell size", m_cell, 0.001);
     args.add("mode", "Method for downsizing : voxelcenter / firstinvoxel",
-        m_mode, "voxelcenter");
+             m_mode, "voxelcenter");
 }
 
 
@@ -77,12 +78,16 @@ void VoxelDownsizeFilter::ready(PointTableRef)
     std::time_t time;
     std::time(&time);
     std::string dbPath = arbiter::getTempPath() + "/" + std::to_string(time);
-    leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, &m_ldb);
+    leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, (leveldb::DB**)&m_ldb);
     assert(status.ok());
-    m_pool.reset(new Pool(10));
+
+    m_pool.reset(new Pool(10, 10));
+    m_batchSize = 10000000;
+    m_doLevelDBSearch = false;
 
 }
-void VoxelDownsizeFilter::prepared(PointTableRef) {
+void VoxelDownsizeFilter::prepared(PointTableRef)
+{
     if (m_mode.compare("voxelcenter")!=0 && m_mode.compare("firstinvoxel")!=0)
         throw pdal_error("Invalid Downsizing mode");
 
@@ -108,15 +113,23 @@ PointViewSet VoxelDownsizeFilter::run(PointViewPtr view)
 
 bool VoxelDownsizeFilter::find(int gx, int gy, int gz)
 {
-    //m_pool->await();
     auto itr = m_populatedVoxels.find(std::make_tuple(gx, gy, gz));
     if (itr == m_populatedVoxels.end())
     {
-        std::string val;
-        leveldb::Status s = m_ldb->Get(
-                                leveldb::ReadOptions(),
-                                std::to_string(gx) + std::to_string(gy) + std::to_string(gz), &val);
-        return (s.ok() && !val.empty());
+        if (m_doLevelDBSearch)
+        {
+            std::unique_lock<std::mutex> lk(m_mutex);
+            m_cvLock.wait(lk,[this]()
+            {
+                return !m_syncing;
+            });
+            std::string val;
+            leveldb::Status s = m_ldb->Get(
+                                    leveldb::ReadOptions(),
+                                    std::to_string(gx) + std::to_string(gy) + std::to_string(gz), &val);
+            return (s.ok() && !val.empty());
+        }
+        return false;
     }
     return true;
 }
@@ -125,19 +138,29 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
 {
     if (m_populatedVoxels.size() > m_batchSize)
     {
-        std::set<std::tuple<int, int, int>> tempMap = m_populatedVoxels;
-        leveldb::WriteBatch batch;
-        for (auto itr=tempMap.begin(); itr!=tempMap.end(); ++itr)
+        m_doLevelDBSearch = true;
+        std::set<std::tuple<int, int, int>> syncSet;
+        std::swap(syncSet, m_populatedVoxels);
+        m_pool->add([this, syncSet]()
         {
-            auto t=*itr;
-            auto val = std::to_string(std::get<0>(t)) +
-                       std::to_string(std::get<1>(t)) +
-                       std::to_string(std::get<2>(t));
-            batch.Put(val,val);
-        }
-        auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
-        assert(res);
-        m_populatedVoxels.clear();
+            m_syncing = true;
+            std::unique_lock<std::mutex> lock(m_mutex);
+            leveldb::WriteBatch batch;
+            for (auto itr = syncSet.begin(); itr != syncSet.end(); ++itr)
+            {
+                auto t = *itr;
+                auto key = std::to_string(std::get<0>(t)) +
+                           std::to_string(std::get<1>(t)) +
+                           std::to_string(std::get<2>(t));
+                batch.Put(key, "1");
+            }
+            auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
+            assert(res);
+            m_syncing = false;
+            lock.unlock();
+            m_cvLock.notify_one();
+        });
+        m_pool->go();
     }
     return m_populatedVoxels.insert(std::make_tuple(gx, gy, gz)).second;
 }
@@ -190,8 +213,10 @@ bool VoxelDownsizeFilter::processOne(PointRef& point)
     return voxelize(point);
 }
 
-void VoxelDownsizeFilter::done(PointTableRef) {
-    delete m_ldb;
+void VoxelDownsizeFilter::done(PointTableRef)
+{
+    delete m_pool.release();
+    delete m_ldb.release();
 }
 
 } // namespace pdal

@@ -176,3 +176,6 @@ test/data/*.json
 test/data/pipeline/*.json
 test/data/filters/*.json
 test/data/plang/*.json
+
+cmake-build-release/*
+cmake-build-debug/*
