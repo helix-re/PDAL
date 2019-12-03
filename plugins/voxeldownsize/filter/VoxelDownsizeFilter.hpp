@@ -71,6 +71,7 @@ private:
 
     double m_cell;
     std::set<std::tuple<int, int, int>> m_populatedVoxels;
+    std::set<std::tuple<int, int, int>> m_syncSet;
     int m_pivotVoxel[3]; // [0]: X dimension, [1]: Y dimension, [2]: Z
     // dimension.
     bool m_pivotVoxelInitialized;

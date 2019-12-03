@@ -77,11 +77,12 @@ void VoxelDownsizeFilter::ready(PointTableRef)
     ldbOptions.block_cache = leveldb::NewLRUCache(1 * 1024 * 1024 * 1024);
     std::time_t time;
     std::time(&time);
+    log()->get(LogLevel::Debug)<<time<<std::endl;
     std::string dbPath = arbiter::getTempPath() + "/" + std::to_string(time);
     leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, (leveldb::DB**)&m_ldb);
     assert(status.ok());
 
-    m_pool.reset(new Pool(10, 10));
+    m_pool.reset(new Pool(4, 10));
     m_batchSize = 10000000;
     m_doLevelDBSearch = false;
 
@@ -139,23 +140,52 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
     if (m_populatedVoxels.size() > m_batchSize)
     {
         m_doLevelDBSearch = true;
-        std::set<std::tuple<int, int, int>> syncSet;
-        std::swap(syncSet, m_populatedVoxels);
-        m_pool->add([this, syncSet]()
+        m_syncSet.clear();
+        std::swap(m_syncSet, m_populatedVoxels);
+        m_pool->add([this]()
         {
             m_syncing = true;
             std::unique_lock<std::mutex> lock(m_mutex);
-            leveldb::WriteBatch batch;
-            for (auto itr = syncSet.begin(); itr != syncSet.end(); ++itr)
-            {
-                auto t = *itr;
-                auto key = std::to_string(std::get<0>(t)) +
-                           std::to_string(std::get<1>(t)) +
-                           std::to_string(std::get<2>(t));
-                batch.Put(key, "1");
+
+            ///////////////////////////////////////////////////////////
+            Pool innerPool(8,100);
+            size_t chunkSize = m_batchSize / 100;
+            while (m_syncSet.size()>0){
+                auto itr = m_syncSet.begin();
+                std::advance(itr, (std::min)(chunkSize, m_syncSet.size()));
+                std::set<std::tuple<int, int, int>> tempSet(m_syncSet.begin(), itr);
+                m_syncSet.erase(m_syncSet.begin(), itr);
+                auto db = m_ldb.get();
+                innerPool.add([db, &tempSet](){
+                    leveldb::WriteBatch batch;
+                    for (auto itr = tempSet.begin(); itr != tempSet.end(); ++itr)
+                    {
+                        auto t = *itr;
+                        auto key = std::to_string(std::get<0>(t)) +
+                                   std::to_string(std::get<1>(t)) +
+                                   std::to_string(std::get<2>(t));
+                        batch.Put(key, "1");
+                    }
+                    auto res = db->Write(leveldb::WriteOptions(), &batch).ok();
+                    assert(res);
+                });
             }
-            auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
-            assert(res);
+            innerPool.join();
+
+            //////////////////////////////////////////////////////////
+
+//            leveldb::WriteBatch batch;
+//            for (auto itr = syncSet.begin(); itr != syncSet.end(); ++itr)
+//            {
+//                auto t = *itr;
+//                auto key = std::to_string(std::get<0>(t)) +
+//                           std::to_string(std::get<1>(t)) +
+//                           std::to_string(std::get<2>(t));
+//                batch.Put(key, "1");
+//            }
+//            auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
+//            assert(res);
+
             m_syncing = false;
             lock.unlock();
             m_cvLock.notify_one();
@@ -210,6 +240,11 @@ bool VoxelDownsizeFilter::voxelize(PointRef point)
 
 bool VoxelDownsizeFilter::processOne(PointRef& point)
 {
+    static point_count_t c = 0;
+    c++;
+    if(c%1000000 ==0){
+        log()->get(LogLevel::Debug) << "Wrote " << c << " points"<<std::endl;
+    }
     return voxelize(point);
 }
 
@@ -217,6 +252,10 @@ void VoxelDownsizeFilter::done(PointTableRef)
 {
     delete m_pool.release();
     delete m_ldb.release();
+
+    std::time_t time;
+    std::time(&time);
+    log()->get(LogLevel::Debug)<<time<<std::endl;
 }
 
 } // namespace pdal
