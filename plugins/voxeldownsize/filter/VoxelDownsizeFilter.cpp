@@ -156,7 +156,7 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
                 std::set<std::tuple<int, int, int>> tempSet(m_syncSet.begin(), itr);
                 m_syncSet.erase(m_syncSet.begin(), itr);
                 auto db = m_ldb.get();
-                innerPool.add([db, &tempSet](){
+                innerPool.add([db, tempSet](){
                     leveldb::WriteBatch batch;
                     for (auto itr = tempSet.begin(); itr != tempSet.end(); ++itr)
                     {
