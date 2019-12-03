@@ -80,7 +80,10 @@ void VoxelDownsizeFilter::ready(PointTableRef)
     std::string dbPath = arbiter::getTempPath() + "/" + std::to_string(time);
     leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, (leveldb::DB**)&m_ldb);
     assert(status.ok());
+
     m_pool.reset(new Pool(10, 10));
+    m_batchSize = 10000000;
+    m_doLevelDBSearch = false;
 
 }
 void VoxelDownsizeFilter::prepared(PointTableRef)
@@ -113,12 +116,20 @@ bool VoxelDownsizeFilter::find(int gx, int gy, int gz)
     auto itr = m_populatedVoxels.find(std::make_tuple(gx, gy, gz));
     if (itr == m_populatedVoxels.end())
     {
-        m_pool->await();
-        std::string val;
-        leveldb::Status s = m_ldb->Get(
-                                leveldb::ReadOptions(),
-                                std::to_string(gx) + std::to_string(gy) + std::to_string(gz), &val);
-        return (s.ok() && !val.empty());
+        if (m_doLevelDBSearch)
+        {
+            std::unique_lock<std::mutex> lk(m_mutex);
+            m_cvLock.wait(lk,[this]()
+            {
+                return !m_syncing;
+            });
+            std::string val;
+            leveldb::Status s = m_ldb->Get(
+                                    leveldb::ReadOptions(),
+                                    std::to_string(gx) + std::to_string(gy) + std::to_string(gz), &val);
+            return (s.ok() && !val.empty());
+        }
+        return false;
     }
     return true;
 }
@@ -127,36 +138,27 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
 {
     if (m_populatedVoxels.size() > m_batchSize)
     {
-        std::set<std::tuple<int, int, int>> tempMap;
-        std::swap(tempMap, m_populatedVoxels);
-        auto temp_ldb = m_ldb.get();
-        auto chunkSize = m_ldbSyncChunkSize;
-        m_pool->add([chunkSize, temp_ldb, tempMap]()
+        m_doLevelDBSearch = true;
+        std::set<std::tuple<int, int, int>> syncSet;
+        std::swap(syncSet, m_populatedVoxels);
+        m_pool->add([this, syncSet]()
         {
-            Pool localPool(100, 10);
-            auto itr = tempMap.begin();
-            for (unsigned int i = (std::min)(tempMap.size(), chunkSize); itr != tempMap.end(); i = (std::min)(tempMap.size(), i + chunkSize))
+            m_syncing = true;
+            std::unique_lock<std::mutex> lock(m_mutex);
+            leveldb::WriteBatch batch;
+            for (auto itr = syncSet.begin(); itr != syncSet.end(); ++itr)
             {
-                auto tempItr = itr;
-                std::advance(itr, i);
-                std::set<std::tuple<int, int, int>> syncSet(tempItr, itr);
-                localPool.add([temp_ldb, syncSet]()
-                {
-                    leveldb::WriteBatch batch;
-                    for (auto itr = syncSet.begin(); itr != syncSet.end(); ++itr)
-                    {
-                        auto t=*itr;
-                        auto key = std::to_string(std::get<0>(t)) +
-                                   std::to_string(std::get<1>(t)) +
-                                   std::to_string(std::get<2>(t));
-                        batch.Put(key,"1");
-                    }
-                    auto res = temp_ldb->Write(leveldb::WriteOptions(), &batch).ok();
-                    assert(res);
-                });
-                localPool.go();
+                auto t = *itr;
+                auto key = std::to_string(std::get<0>(t)) +
+                           std::to_string(std::get<1>(t)) +
+                           std::to_string(std::get<2>(t));
+                batch.Put(key, "1");
             }
-            localPool.await();
+            auto res = m_ldb->Write(leveldb::WriteOptions(), &batch).ok();
+            assert(res);
+            m_syncing = false;
+            lock.unlock();
+            m_cvLock.notify_one();
         });
         m_pool->go();
     }

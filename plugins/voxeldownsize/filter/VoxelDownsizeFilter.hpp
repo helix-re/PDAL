@@ -42,6 +42,7 @@
 #include <leveldb/db.h>
 #include <leveldb/write_batch.h>
 #include "io/private/EptSupport.hpp"
+#include <condition_variable>
 
 namespace pdal
 {
@@ -77,9 +78,12 @@ private:
 
     bool m_isFirstInVoxelMode; // True: firstinvoxel mode, False: voxelcenter mode
     std::unique_ptr<leveldb::DB> m_ldb;
-    point_count_t m_batchSize = 10000000;
-    point_count_t m_ldbSyncChunkSize = 100000;
     std::unique_ptr<Pool> m_pool;
+    point_count_t m_batchSize;
+    bool m_doLevelDBSearch;
+    mutable std::condition_variable m_cvLock;
+    mutable std::mutex m_mutex;
+    bool m_syncing;
 };
 
 } // namespace pdal
