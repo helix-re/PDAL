@@ -54,19 +54,6 @@ static StaticPluginInfo const s_info
 CREATE_STATIC_STAGE(AssignFilter, s_info)
 
 
-struct AssignRange : public DimRange
-{
-    void parse(const std::string& r);
-    double m_value;
-};
-
-struct AssignArgs
-{
-    std::vector<AssignRange> m_assignments;
-    DimRange m_condition;
-    std::vector<expr::AssignStatement> m_statements;
-};
-
 
 void AssignRange::parse(const std::string& r)
 {
