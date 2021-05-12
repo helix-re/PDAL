@@ -36,21 +36,11 @@
 
 #include <pdal/Filter.hpp>
 #include <pdal/Streamable.hpp>
-#include "private/DimRange.hpp"
 
 namespace pdal
 {
-struct AssignRange : public DimRange
-{
-    void parse(const std::string& r);
-    double m_value;
-};
 
-struct AssignArgs
-{
-    std::vector<AssignRange> m_assignments;
-    DimRange m_condition;
-};
+struct AssignArgs;
 
 class PDAL_DLL AssignFilter : public Filter, public Streamable
 {
