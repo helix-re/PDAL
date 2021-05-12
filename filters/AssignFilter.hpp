@@ -50,6 +50,7 @@ struct AssignArgs
 {
     std::vector<AssignRange> m_assignments;
     DimRange m_condition;
+    std::vector<expr::AssignStatement> m_statements;
 };
 
 class PDAL_DLL AssignFilter : public Filter, public Streamable
