@@ -12,11 +12,6 @@ option(BUILD_PLUGIN_CPD
 add_feature_info("CPD plugin" BUILD_PLUGIN_CPD
     "Coherent Point Drift (CPD) computes rigid or nonrigid transformations between point sets")
 
-option(BUILD_PLUGIN_GEOWAVE
-    "Choose if GeoWave support should be built" FALSE)
-add_feature_info("GeoWave plugin" BUILD_PLUGIN_GEOWAVE
-    "Read and Write data using GeoWave")
-
 option(BUILD_PLUGIN_I3S
     "Choose if I3S and SLPK support should be built" FALSE)
 add_feature_info("I3S plugin" BUILD_PLUGIN_I3S
@@ -26,6 +21,11 @@ option(BUILD_PLUGIN_ICEBRIDGE
     "Choose if Icebridge support should be built" FALSE)
 add_feature_info("Icebridge plugin" BUILD_PLUGIN_ICEBRIDGE
     "read data in the Icebridge format")
+
+option(BUILD_PLUGIN_HDF
+    "Choose if HDF support should be built" FALSE)
+add_feature_info("HDF plugin" BUILD_PLUGIN_HDF
+    "read data in the HDF format")
 
 option(BUILD_PLUGIN_MATLAB
     "Choose if Matlab support should be built" FALSE)
@@ -59,11 +59,6 @@ option(BUILD_PLUGIN_PGPOINTCLOUD
 add_feature_info("PostgreSQL PointCloud plugin" BUILD_PLUGIN_PGPOINTCLOUD
     "read/write PostgreSQL PointCloud objects")
 
-option(BUILD_PLUGIN_SQLITE
-    "Choose if SQLite database support should be built" FALSE)
-add_feature_info("SQLite plugin" BUILD_PLUGIN_SQLITE
-    "read/write SQLite objects")
-
 option(BUILD_PLUGIN_RIVLIB
     "Choose if RiVLib support should be built" FALSE)
 add_feature_info("RiVLib plugin" BUILD_PLUGIN_RIVLIB
@@ -74,11 +69,6 @@ option(BUILD_PLUGIN_RDBLIB
 add_feature_info("rdblib plugin" BUILD_PLUGIN_RDBLIB
     "read data in the RDB format")
 
-option(BUILD_PLUGIN_PYTHON
-    "Choose if Python support should be built" FALSE)
-add_feature_info("Python plugin" BUILD_PLUGIN_PYTHON
-    "add features that depend on python")
-
 option(BUILD_PLUGIN_MBIO
     "Choose if MBIO support should be built" FALSE)
 add_feature_info("MBIO plugin" BUILD_PLUGIN_MBIO
@@ -88,6 +78,11 @@ option(BUILD_PLUGIN_FBX
     "Choose if FBX support should be built" FALSE)
 add_feature_info("FBX plugin" BUILD_PLUGIN_FBX
     "add features that depend on FBX")
+
+option(BUILD_PLUGIN_TEASER
+    "Choose if TEASER++ support should be built" FALSE)
+add_feature_info("TEASER++ plugin" BUILD_PLUGIN_TEASER
+    "TEASER++ computes transformations between point sets")
 
 option(BUILD_PLUGIN_TILEDB
     "Choose if TileDB support should be built" FALSE)
@@ -119,9 +114,6 @@ include(CMakeDependentOption)
 cmake_dependent_option(BUILD_PGPOINTCLOUD_TESTS
     "Choose if PostgreSQL PointCloud tests should be built"
     ON "BUILD_PLUGIN_PGPOINTCLOUD; WITH_TESTS" OFF)
-cmake_dependent_option(BUILD_SQLITE_TESTS
-    "Choose if SQLite tests should be built"
-    ON "BUILD_PLUGIN_SQLITE; WITH_TESTS" OFF)
 cmake_dependent_option(BUILD_OCI_TESTS
     "Choose if OCI tests should be built"
     ON "BUILD_PLUGIN_OCI; WITH_TESTS" OFF)

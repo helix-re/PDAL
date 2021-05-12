@@ -50,6 +50,39 @@ static StaticPluginInfo const s_info
 
 CREATE_SHARED_STAGE(VoxelDownsizeFilter, s_info)
 
+std::istream& operator>>(std::istream& in, VoxelDownsizeFilter::Mode& mode)
+{
+    std::string s;
+    in >> s;
+
+    s = Utils::tolower(s);
+    if (s == "center")
+        mode = VoxelDownsizeFilter::Mode::Center;
+    else if (s == "first")
+        mode = VoxelDownsizeFilter::Mode::First;
+    else
+        throw pdal_error("filters.voxeldownsize: Invalid 'mode' option '" +
+            s + "'. " "Valid options are 'center' and 'first'");
+    return in;
+}
+
+
+std::ostream& operator<<(std::ostream& out,
+    const VoxelDownsizeFilter::Mode& mode)
+{
+    switch (mode)
+    {
+    case VoxelDownsizeFilter::Mode::Center:
+        out << "center";
+        break;
+    case VoxelDownsizeFilter::Mode::First:
+        out << "first";
+        break;
+    }
+    return out;
+}
+
+
 VoxelDownsizeFilter::VoxelDownsizeFilter()
 {}
 
@@ -62,43 +95,25 @@ std::string VoxelDownsizeFilter::getName() const
 void VoxelDownsizeFilter::addArgs(ProgramArgs& args)
 {
     args.add("cell", "Cell size", m_cell, 0.001);
-    args.add("mode", "Method for downsizing : voxelcenter / firstinvoxel",
-        m_mode, "voxelcenter");
+    args.add("mode", "Method for downsizing : center / first",
+        m_mode, Mode::Center);
 }
 
 
 void VoxelDownsizeFilter::ready(PointTableRef)
-{
-    m_pivotVoxelInitialized = false;
-    leveldb::Options ldbOptions;
-    ldbOptions.create_if_missing = true;
-    //ldbOptions.compression = leveldb::kNoCompression;
-    ldbOptions.block_cache = leveldb::NewLRUCache(1 * 1024 * 1024 * 1024);
-    std::time_t time;
-    std::time(&time);
-    std::string dbPath = arbiter::getTempPath() + "/" + std::to_string(time);
-    leveldb::Status status = leveldb::DB::Open(ldbOptions, dbPath, &m_ldb);
-    assert(status.ok());
-    m_pool.reset(new Pool(10));
+{ m_populatedVoxels.clear(); }
 
-}
-void VoxelDownsizeFilter::prepared(PointTableRef) {
-    if (m_mode.compare("voxelcenter")!=0 && m_mode.compare("firstinvoxel")!=0)
-        throw pdal_error("Invalid Downsizing mode");
-
-    m_isFirstInVoxelMode = (m_mode.compare("firstinvoxel") == 0);
-}
 
 
 PointViewSet VoxelDownsizeFilter::run(PointViewPtr view)
 {
     PointViewPtr output = view->makeNew();
+    PointRef point(*view);
     for (PointId id = 0; id < view->size(); ++id)
     {
-        if (voxelize(view->point(id)))
-        {
+        point.setPointId(id);
+        if (voxelize(point))
             output->appendPoint(*view, id);
-        }
     }
 
     PointViewSet viewSet;
@@ -143,44 +158,40 @@ bool VoxelDownsizeFilter::insert(int gx, int gy, int gz)
 }
 
 
-bool VoxelDownsizeFilter::voxelize(PointRef point)
+bool VoxelDownsizeFilter::voxelize(PointRef& point)
 {
     /*
      * Calculate the voxel coordinates for the incoming point.
      * gx, gy, gz will be the global coordinates from (0, 0, 0).
      */
-    int gx = std::floor(point.getFieldAs<double>(Dimension::Id::X) / m_cell);
-    int gy = std::floor(point.getFieldAs<double>(Dimension::Id::Y) / m_cell);
-    int gz = std::floor(point.getFieldAs<double>(Dimension::Id::Z) / m_cell);
-
-    if (!m_pivotVoxelInitialized)
+    double x = point.getFieldAs<double>(Dimension::Id::X);
+    double y = point.getFieldAs<double>(Dimension::Id::Y);
+    double z = point.getFieldAs<double>(Dimension::Id::Z);
+    if (m_populatedVoxels.empty())
     {
-        /*
-         * Save global coordinates of first incoming point's voxel.
-         * This will act as a Pivot for calculation of local coordinates of the
-         * voxels.
-         */
-        m_pivotVoxel[0] = gx; // X Coordinate of an Pivot voxel
-        m_pivotVoxel[1] = gy; // Y Coordinate of an Pivot voxel
-        m_pivotVoxel[2] = gz; // Z Coordinate of an Pivot voxel
-        m_pivotVoxelInitialized = true;
+        m_originX = x - (m_cell / 2);
+        m_originY = y - (m_cell / 2);
+        m_originZ = z - (m_cell / 2);
     }
 
-    /*
-     * Calculate the local voxel coordinates for incoming point, Using the
-     * Pivot voxel.
-     */
-    auto kx = gx - m_pivotVoxel[0], ky = gy - m_pivotVoxel[1],
-         kz = gz - m_pivotVoxel[2];
-    if (!find(kx, ky, kz))
+    // Offset by origin.
+    x -= m_originX;
+    y -= m_originY;
+    z -= m_originZ;
+
+    Voxel v = std::make_tuple((int)(std::floor(x / m_cell)),
+        (int)(std::floor(y / m_cell)), (int)(std::floor(z / m_cell)));
+
+    auto inserted = m_populatedVoxels.insert(v).second;
+    if ((m_mode == Mode::Center) && inserted)
     {
-        if (!m_isFirstInVoxelMode)
-        {
-            point.setField<double>(Dimension::Id::X, (gx + 0.5) * m_cell);
-            point.setField<double>(Dimension::Id::Y, (gy + 0.5) * m_cell);
-            point.setField<double>(Dimension::Id::Z, (gz + 0.5) * m_cell);
-        }
-        return insert(kx, ky, kz);
+        point.setField(Dimension::Id::X,
+            (std::get<0>(v) + 0.5) * m_cell + m_originX);
+        point.setField(Dimension::Id::Y,
+            (std::get<1>(v) + 0.5) * m_cell + m_originY);
+        point.setField(Dimension::Id::Z,
+            (std::get<2>(v) + 0.5) * m_cell + m_originZ);
+
     }
     return false;
 }

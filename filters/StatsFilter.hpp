@@ -61,6 +61,9 @@ public:
         m_name(name), m_enumerate(enumerate), m_advanced(advanced)
     { reset(); }
 
+    // Merge another summary with this one. 'name', 'enumerate' and 'advanced' must match
+    // or false is returned and no merge occurs.
+    bool merge(const Summary& s);
     double minimum() const
         { return m_min; }
     double maximum() const
@@ -89,7 +92,7 @@ public:
     {
         if (M2 == 0 || m_cnt <= 2 || !m_advanced)
             return 0.0;
-        double c(m_cnt);
+        double c((double)m_cnt);
         return populationSkewness() * std::sqrt(c) * std::sqrt(c - 1) / (c - 2);
     }
     double skewness() const
@@ -112,14 +115,14 @@ public:
     {
         if (M2 == 0 || m_cnt <= 3 || !m_advanced)
             return 0;
-        double c(m_cnt);
+        double c((double)m_cnt);
         return populationKurtosis() * (c + 1) * (c - 1) / ((c - 2) * (c - 3));
     }
     double sampleExcessKurtosis() const
     {
         if (M2 == 0 || m_cnt <= 3 || !m_advanced)
             return 0;
-        double c(m_cnt);
+        double c((double)m_cnt);
         return sampleKurtosis() - 3 * (c - 1) * (c - 1) / ((c - 2) * (c - 3));
     }
     double kurtosis() const

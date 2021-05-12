@@ -32,6 +32,7 @@
 #include <pdal/pdal_internal.hpp>
 
 class OGRCoordinateTransformation;
+class OGRSpatialReference;
 
 namespace pdal
 {
@@ -43,7 +44,12 @@ class PDAL_DLL SrsTransform
 public:
     /// Object that performs transformation from a \src spatial reference
     /// to a \dest spatial reference.
+    SrsTransform(OGRSpatialReference src, OGRSpatialReference dst);
     SrsTransform(const SpatialReference& src, const SpatialReference& dst);
+    SrsTransform(const SpatialReference& src,
+                 std::vector<int> srcOrder,
+                 const SpatialReference& dst,
+                 std::vector<int> dstOrder);
     ~SrsTransform();
 
     /// Get the underlying transformation.
@@ -55,7 +61,7 @@ public:
     /// \param y  Y coordinate
     /// \param z  Z coordinate
     /// \return  True if the transformation was successful
-    bool transform(double& x, double& y, double& z);
+    bool transform(double& x, double& y, double& z) const;
 
     /// Transform a set of points in place.
     /// \param x  X coordinates
@@ -63,7 +69,7 @@ public:
     /// \param z  Z coordinates
     /// \return  True if the transformation was successful
     bool transform(std::vector<double>& x, std::vector<double>& y,
-        std::vector<double>& z);
+        std::vector<double>& z) const;
 
 private:
     std::unique_ptr<OGRCoordinateTransformation> m_transform;

@@ -32,7 +32,10 @@
 * OF SUCH DAMAGE.
 ****************************************************************************/
 
-#include <pdal/GDALUtils.hpp>
+#pragma warning(push)
+#pragma warning(disable: 4251)
+#include <ogr_geometry.h>
+#pragma warning(pop)
 
 #include "Ilvis2MetadataReader.hpp"
 
@@ -55,6 +58,7 @@ void Ilvis2MetadataReader::readMetadataFile(std::string filename,
 
     parseGranuleMetaDataFile(node, m);
 
+    xmlFreeDoc(doc);
     xmlCleanupParser();
     xmlMemoryDump();
 }

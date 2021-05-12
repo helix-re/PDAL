@@ -39,8 +39,14 @@
 
 namespace pdal
 {
+using namespace e57;
+static PluginInfo const s_info
+{
+    "readers.e57",
+    "Reader for E57 files",
+    "http://pdal.io/stages/reader.e57.html"
+};
 
-static PluginInfo const s_info{"readers.e57", "Reader for E57 files", ""};
 
 CREATE_SHARED_STAGE(E57Reader, s_info)
 
@@ -50,14 +56,15 @@ std::string E57Reader::getName() const
 }
 
 E57Reader::E57Reader()
-    : Reader(), Streamable(), m_currentIndex(0), m_pointsInCurrentBatch(0), m_defaultChunkSize(1000000),
-      m_currentScan(-1)
+    : Reader(), Streamable()
+
 {
 }
 
 void E57Reader::addArgs(ProgramArgs& args)
 {
-    args.add("extra_dims", "Extra dimensions to write to E57 data",
+
+    args.add("extra_dims", "Extra dimensions to read from E57 point cloud.",
              m_extraDimsSpec);
 }
 
@@ -164,8 +171,8 @@ void E57Reader::initialize()
     try
     {
         arbiter::Arbiter arb;
-        auto fileHandle = arb.getLocalHandle(m_filename);
-        m_imf.reset(new ImageFile(fileHandle->localPath(), "r"));
+        arbiter::LocalHandle fileHandle = arb.getLocalHandle(m_filename);
+        m_imf.reset(new ImageFile(fileHandle.localPath(), "r"));
         StructureNode root = m_imf->root();
 
         if (!root.isDefined("/data3D"))
@@ -197,6 +204,13 @@ void E57Reader::initialize()
 void E57Reader::ready(PointTableRef& ref)
 {
     log()->get(LogLevel::Info) << "Reading : " << m_filename;
+    
+    m_currentIndex = 0;
+    m_pointsInCurrentBatch = 0;
+    m_defaultChunkSize = 10000;
+    m_currentScan = -1;
+    
+
     // Initial reader setup.
     setupReader();
 }
@@ -285,7 +299,8 @@ bool E57Reader::fillPoint(PointRef& point)
 
     if (!m_pointsInCurrentBatch)
     {
-        // We're done with reding
+        // We're done with reading
+
         return false;
     }
 
@@ -317,10 +332,12 @@ bool E57Reader::fillPoint(PointRef& point)
 point_count_t E57Reader::read(PointViewPtr view, point_count_t count)
 {
     point_count_t numPoints = e57plugin::numPoints(*m_data3D);
+    PointRef point(*view);
     for (PointId counter = 0, nextId = view->size(); counter < numPoints;
             ++counter, ++nextId)
     {
-        PointRef point(view->point(nextId));
+        point.setPointId(nextId);
+
         fillPoint(point);
     }
 
@@ -337,4 +354,6 @@ void E57Reader::done(PointTableRef table)
     m_imf->close();
 }
 
+
 } // namespace pdal
+

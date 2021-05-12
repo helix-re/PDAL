@@ -210,7 +210,8 @@ TEST(E57Writer, testExtraDims)
     // Dimension which is not present in input point cloud.
     // This dimension should not be there in output E57.
     ASSERT_THROW((e57::StructureNode)((e57::StructureNode)data3D.get(0))
-                 .get("testDimLimits"), E57Exception);
+                 .get("testDimLimits"), e57::E57Exception);
+
 
     // Classification dimension, This will be written if available in input otherwise ignored. Not configurable through extra_dims.
     limits = (e57::StructureNode)((e57::StructureNode)data3D.get(0))

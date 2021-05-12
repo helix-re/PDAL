@@ -37,10 +37,9 @@
 #include <array>
 #include <random>
 
-#include <pdal/EigenUtils.hpp>
 #include <pdal/PointView.hpp>
-#include <pdal/PointViewIter.hpp>
 #include <pdal/PDALUtils.hpp>
+
 #include "Support.hpp"
 
 using namespace pdal;

@@ -34,8 +34,17 @@
 
 #include <algorithm>
 
+#include <nlohmann/json.hpp>
+
 #include "TileDBReader.hpp"
 
+
+const char pathSeparator =
+#ifdef _WIN32
+        '\\';
+#else
+        '/';
+#endif
 namespace pdal {
 
 static PluginInfo const s_info
@@ -88,7 +97,7 @@ Dimension::Type getPdalType(tiledb_datatype_t t)
 
 void TileDBReader::addArgs(ProgramArgs& args)
 {
-    args.add("array_name", "TileDB array name", m_arrayName).setPositional();
+    args.addSynonym("filename", "array_name");
     args.add("config_file", "TileDB configuration file location",
         m_cfgFileName);
     args.add("chunk_size", "TileDB read chunk size", m_chunkSize,
@@ -97,6 +106,14 @@ void TileDBReader::addArgs(ProgramArgs& args)
     args.add("bbox3d", "Bounding box subarray to read from TileDB in format "
         "([minx, maxx], [miny, maxy], [minz, maxz])", m_bbox);
 }
+
+void TileDBReader::prepared(PointTableRef table)
+{
+    if (m_filename.empty())
+        throwError("Required argument 'filename' (TileDB array name) "
+            "not provided.");
+}
+
 
 void TileDBReader::initialize()
 {
@@ -108,7 +125,17 @@ void TileDBReader::initialize()
     else
         m_ctx.reset(new tiledb::Context());
 
-    m_array.reset(new tiledb::Array(*m_ctx, m_arrayName, TILEDB_READ));
+    try
+    {
+        if (m_stats)
+            tiledb::Stats::enable();
+
+        m_array.reset(new tiledb::Array(*m_ctx, m_filename, TILEDB_READ));
+    }
+    catch (const tiledb::TileDBError& err)
+    {
+        throwError(std::string("TileDB Error: ") + err.what());
+    }
 }
 
 void TileDBReader::addDimensions(PointLayoutPtr layout)
@@ -125,8 +152,13 @@ void TileDBReader::addDimensions(PointLayoutPtr layout)
         DimInfo di;
 
         di.m_name = dim.name();
+#if TILEDB_VERSION_MAJOR == 1
         di.m_offset = i;
         di.m_span = dims.size();
+#else
+        di.m_offset = 0;
+        di.m_span = 1;
+#endif
         di.m_dimCategory = DimCategory::Dimension;
         di.m_tileType = dim.type();
         di.m_type = getPdalType(di.m_tileType);
@@ -204,42 +236,61 @@ void TileDBReader::setQueryBuffer(const DimInfo& di)
 
 void TileDBReader::ready(PointTableRef)
 {
+    try
+    {
+        localReady();
+    }
+    catch (const tiledb::TileDBError& err)
+    {
+        throwError(std::string("TileDB Error: ") + err.what());
+    }
+}
+
+
+void TileDBReader::localReady()
+{
     int numDims = m_array->schema().domain().dimensions().size();
 
     m_query.reset(new tiledb::Query(*m_ctx, *m_array));
+    m_query->set_layout( TILEDB_UNORDERED );
 
     // Build the buffer for the dimensions.
     auto it = std::find_if(m_dims.begin(), m_dims.end(),
         [](DimInfo& di){ return di.m_dimCategory == DimCategory::Dimension; });
 
     DimInfo& di = *it;
+
+#if TILEDB_VERSION_MAJOR == 1
     Buffer *dimBuf = new Buffer(di.m_tileType, m_chunkSize * numDims);
     m_query->set_coordinates(dimBuf->get<double>(), dimBuf->count());
     m_buffers.push_back(std::unique_ptr<Buffer>(dimBuf));
+#endif
 
     for (DimInfo& di : m_dims)
     {
         // All dimensions use the same buffer.
+#if TILEDB_VERSION_MAJOR == 1 
         if (di.m_dimCategory == DimCategory::Dimension)
-            di.m_buffer = dimBuf;
-        else
         {
-            std::unique_ptr<Buffer> dimBuf(
-                new Buffer(di.m_tileType, m_chunkSize));
-            di.m_buffer = dimBuf.get();
-            m_buffers.push_back(std::move(dimBuf));
-            setQueryBuffer(di);
+            di.m_buffer = dimBuf;
+            continue;
         }
+#endif
+        std::unique_ptr<Buffer> dimBuf(
+            new Buffer(di.m_tileType, m_chunkSize));
+        di.m_buffer = dimBuf.get();
+        m_buffers.push_back(std::move(dimBuf));
+        setQueryBuffer(di);
     }
 
     // Set the extent of the query.
     if (!m_bbox.empty())
     {
         if (numDims == 2)
-            m_query->set_subarray({m_bbox.minx, m_bbox.minx,
+            m_query->set_subarray({m_bbox.minx, m_bbox.maxx,
                 m_bbox.miny, m_bbox.maxy});
         else
-            m_query->set_subarray({m_bbox.minx, m_bbox.minx,
+            m_query->set_subarray({m_bbox.minx, m_bbox.maxx,
                 m_bbox.miny, m_bbox.maxy, m_bbox.minz, m_bbox.maxz});
     }
     else
@@ -253,6 +304,44 @@ void TileDBReader::ready(PointTableRef)
             subarray.push_back(kv.second.second);
         }
         m_query->set_subarray(subarray);
+    }
+
+    // read spatial reference
+    NL::json meta = nullptr;
+
+#if TILEDB_VERSION_MAJOR > 1 || TILEDB_VERSION_MINOR >= 7
+    tiledb_datatype_t v_type = TILEDB_UINT8;
+    const void* v_r;
+    uint32_t v_num;
+    m_array->get_metadata("_pdal", &v_type, &v_num, &v_r);
+    if (v_r != NULL)
+        meta = NL::json::parse(static_cast<const char*>(v_r));
+#endif
+
+    if (meta == nullptr)
+    {
+        tiledb::VFS vfs(*m_ctx, m_ctx->config());
+        tiledb::VFS::filebuf fbuf(vfs);
+        std::string metaFName = m_filename + pathSeparator + "pdal.json";
+
+        if (vfs.is_file(metaFName))
+        {
+            auto nBytes = vfs.file_size(metaFName);
+            tiledb::VFS::filebuf fbuf(vfs);
+            fbuf.open(metaFName, std::ios::in);
+            std::istream is(&fbuf);
+            std::string s { std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>() };
+            fbuf.close();
+            meta = NL::json::parse(s);
+        }
+    }
+
+    if ((meta != nullptr) &&
+        (meta.count("writers.tiledb") > 0) &&
+        (meta["writers.tiledb"].count("spatialreference") > 0))
+    {
+        SpatialReference ref(meta["writers.tiledb"]["spatialreference"]);
+        setSpatialReference(ref);
     }
 
     // initialize read buffer variables
@@ -314,6 +403,20 @@ bool setField(PointRef& point, TileDBReader::DimInfo di, size_t bufOffset)
 
 bool TileDBReader::processOne(PointRef& point)
 {
+    try
+    {
+        return processPoint(point);
+    }
+    catch (const tiledb::TileDBError& err)
+    {
+        throwError(std::string("TileDB Error: ") + err.what());
+    }
+    return false;
+}
+
+
+bool TileDBReader::processPoint(PointRef& point)
+{
     if (m_offset == m_resultSize)
     {
         if (m_complete)
@@ -323,13 +426,13 @@ bool TileDBReader::processOne(PointRef& point)
         else
         {
             tiledb::Query::Status status;
-            if (m_stats)
-                tiledb::Stats::enable();
+
             m_query->submit();
+
             if (m_stats)
             {
                 tiledb::Stats::dump(stdout);
-                tiledb::Stats::disable();
+                tiledb::Stats::reset();
             }
 
             status = m_query->query_status();
@@ -338,10 +441,13 @@ bool TileDBReader::processOne(PointRef& point)
             // returned by the query for dimensions.  So if there are three
             // dimensions, the number of points returned is the buffer count
             // divided by the number of dimensions.
+#if TILEDB_VERSION_MAJOR == 1
             m_resultSize =
                 (int)m_query->result_buffer_elements()[TILEDB_COORDS].second /
                 m_array->schema().domain().dimensions().size();
-
+#else
+            m_resultSize = (int)m_query->result_buffer_elements()["X"].second;
+#endif
             if (status == tiledb::Query::Status::INCOMPLETE &&
                     m_resultSize == 0)
                 throwError("Need to increase chunk_size for reader.");
@@ -353,12 +459,19 @@ bool TileDBReader::processOne(PointRef& point)
         }     
     }
 
-    for (DimInfo& dim : m_dims)
-        if (!setField(point, dim, m_offset))
-            throwError("Invalid dimension type when setting data.");
+    if (m_resultSize > 0)
+    {
+        for (DimInfo& dim : m_dims)
+            if (!setField(point, dim, m_offset))
+                throwError("Invalid dimension type when setting data.");
 
-    ++m_offset;
-    return true;
+        ++m_offset;
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 point_count_t TileDBReader::read(PointViewPtr view, point_count_t count)

@@ -37,6 +37,8 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+#include <nlohmann/json.hpp>
+
 #include <pdal/pdal_test_main.hpp>
 #include <io/FauxReader.hpp>
 #include <pdal/StageFactory.hpp>
@@ -61,7 +63,6 @@ namespace pdal
 
         FauxReader m_reader;
         FauxReader m_reader2;
-
     };
 
     TEST_F(TileDBWriterTest, constructor)
@@ -101,10 +102,20 @@ namespace pdal
         writer.prepare(table);
         writer.execute(table);
 
+        tiledb::Array array(ctx, pth, TILEDB_READ);
+
+#if TILEDB_VERSION_MAJOR == 1 && TILEDB_VERSION_MINOR < 7
         // check the sidecar exists
         EXPECT_TRUE(pdal::Utils::fileExists(sidecar));
+#else
+        tiledb_datatype_t v_type = TILEDB_UINT8;
+        const void* v_r;
+        uint32_t v_num;
+        array.get_metadata("_pdal", &v_type, &v_num, &v_r);
+        NL::json meta = NL::json::parse(static_cast<const char*>(v_r));
+        EXPECT_TRUE(meta.count("writers.tiledb") > 0);
+#endif
 
-        tiledb::Array array(ctx, pth, TILEDB_READ);
         auto domain = array.non_empty_domain<double>();
         std::vector<double> subarray;
 
@@ -157,9 +168,6 @@ namespace pdal
         writer.prepare(table);
         writer.execute(table);
 
-        // check the sidecar exists so that the execute has completed
-        EXPECT_TRUE(pdal::Utils::fileExists(sidecar));
-
         options.add("append", true);
         TileDBWriter append_writer;
         append_writer.setOptions(options);
@@ -168,6 +176,247 @@ namespace pdal
         FixedPointTable table2(100);
         append_writer.prepare(table2);
         append_writer.execute(table2);
+
+        tiledb::Array array(ctx, pth, TILEDB_READ);
+        auto domain = array.non_empty_domain<double>();
+        std::vector<double> subarray;
+
+#if TILEDB_VERSION_MAJOR == 1 && TILEDB_VERSION_MINOR < 7
+        // check the sidecar exists so that the execute has completed
+        EXPECT_TRUE(pdal::Utils::fileExists(sidecar));
+#else
+        tiledb_datatype_t v_type = TILEDB_UINT8;
+        const void* v_r;
+        uint32_t v_num;
+        array.get_metadata("_pdal", &v_type, &v_num, &v_r);
+        NL::json meta = NL::json::parse(static_cast<const char*>(v_r));
+        EXPECT_TRUE(meta.count("writers.tiledb") > 0);
+#endif
+
+        for (const auto& kv: domain)
+        {
+            subarray.push_back(kv.second.first);
+            subarray.push_back(kv.second.second);
+        }
+
+        tiledb::Query q(ctx, array, TILEDB_READ);
+        q.set_subarray(subarray);
+
+        auto max_el = array.max_buffer_elements(subarray);
+        std::vector<double> coords(max_el[TILEDB_COORDS].second);
+        q.set_coordinates(coords);
+        q.submit();
+        array.close();
+
+        EXPECT_EQ((m_reader.count() * 3) + (m_reader2.count() * 3), coords.size());
+    }
+
+
+    TEST_F(TileDBWriterTest, write_simple_compression)
+    {
+        tiledb::Context ctx;
+        tiledb::VFS vfs(ctx);
+        std::string pth = Support::temppath("tiledb_test_compress_simple_out");
+
+        Options options;
+        options.add("array_name", pth);
+        options.add("compression", "zstd");
+        options.add("compression_level", 7);
+
+        if (vfs.is_dir(pth))
+        {
+            vfs.remove_dir(pth);
+        }
+
+        TileDBWriter writer;
+        writer.setOptions(options);
+        writer.setInput(m_reader);
+
+        FixedPointTable table(100);
+        writer.prepare(table);
+        writer.execute(table);
+
+        tiledb::Array array(ctx, pth, TILEDB_READ);
+
+        tiledb::FilterList fl = array.schema().coords_filter_list();
+        EXPECT_EQ(fl.nfilters(), 1U);
+
+        tiledb::Filter f = fl.filter(0);
+        EXPECT_EQ(f.filter_type(), TILEDB_FILTER_ZSTD);
+        int32_t compressionLevel;
+        f.get_option(TILEDB_COMPRESSION_LEVEL, &compressionLevel);
+        EXPECT_EQ(compressionLevel, 7);
+    }
+
+    TEST_F(TileDBWriterTest, write_options)
+    {
+        tiledb::Context ctx;
+        tiledb::VFS vfs(ctx);
+        std::string pth = Support::temppath("tiledb_test_write_options");
+
+        Options options;
+        NL::json jsonOptions;
+
+        // add an array filter
+        jsonOptions["coords"] = {
+            {{"compression", "bit-shuffle"}},
+            {{"compression", "zstd"}, {"compression_level", 7}}
+        };
+        jsonOptions["OffsetTime"]["compression"] = "rle";
+
+        options.add("array_name", pth);
+        options.add("filters", jsonOptions);
+
+        if (vfs.is_dir(pth))
+        {
+            vfs.remove_dir(pth);
+        }
+
+        TileDBWriter writer;
+        writer.setOptions(options);
+        writer.setInput(m_reader);
+
+        FixedPointTable table(100);
+        writer.prepare(table);
+        writer.execute(table);
+
+        tiledb::Array array(ctx, pth, TILEDB_READ);
+
+        tiledb::FilterList fl = array.schema().coords_filter_list();
+        EXPECT_EQ(fl.nfilters(), 2U);
+
+        tiledb::Filter f1 = fl.filter(0);
+        tiledb::Filter f2 = fl.filter(1);
+        EXPECT_EQ(f1.filter_type(), TILEDB_FILTER_BITSHUFFLE);
+        EXPECT_EQ(f2.filter_type(), TILEDB_FILTER_ZSTD);
+        int32_t compressionLevel;
+        f2.get_option(TILEDB_COMPRESSION_LEVEL, &compressionLevel);
+        EXPECT_EQ(compressionLevel, 7);
+
+        tiledb::Attribute att = array.schema().attributes().begin()->second;
+        tiledb::FilterList flAtts = att.filter_list();
+        EXPECT_EQ(flAtts.nfilters(), 1U);
+        tiledb::Filter fAtt = flAtts.filter(0);
+        EXPECT_EQ(fAtt.filter_type(), TILEDB_FILTER_RLE);
+    }
+
+   TEST_F(TileDBWriterTest, dup_options)
+    {
+        tiledb::Context ctx;
+        tiledb::VFS vfs(ctx);
+        std::string pth = Support::temppath("tiledb_test_write_options");
+
+        Options options;
+        NL::json jsonOptions;
+
+        // add an array filter
+        jsonOptions["coords"] = {
+            {{"compression", "bit-shuffle"}},
+            {{"compression", "gzip"}, {"compression_level", 9}}
+        };
+
+        options.add("array_name", pth);
+        options.add("compression", "zstd");
+        options.add("compression_level", 7);
+        options.add("filters", jsonOptions);
+
+        if (vfs.is_dir(pth))
+        {
+            vfs.remove_dir(pth);
+        }
+
+        TileDBWriter writer;
+        writer.setOptions(options);
+        writer.setInput(m_reader);
+
+        FixedPointTable table(100);
+        writer.prepare(table);
+        writer.execute(table);
+
+        tiledb::Array array(ctx, pth, TILEDB_READ);
+
+        tiledb::FilterList fl = array.schema().coords_filter_list();
+        EXPECT_EQ(fl.nfilters(), 2U);
+
+        tiledb::Filter f1 = fl.filter(0);
+        tiledb::Filter f2 = fl.filter(1);
+        EXPECT_EQ(f1.filter_type(), TILEDB_FILTER_BITSHUFFLE);
+        EXPECT_EQ(f2.filter_type(), TILEDB_FILTER_GZIP);
+        int32_t compressionLevel;
+        f2.get_option(TILEDB_COMPRESSION_LEVEL, &compressionLevel);
+        EXPECT_EQ(compressionLevel, 9);
+    }
+
+    TEST_F(TileDBWriterTest, default_options)
+    {
+        tiledb::Context ctx;
+        tiledb::VFS vfs(ctx);
+        std::string pth = Support::temppath("tiledb_test_write_options");
+
+        Options options;
+        options.add("array_name", pth);
+
+        if (vfs.is_dir(pth))
+        {
+            vfs.remove_dir(pth);
+        }
+
+        TileDBWriter writer;
+        writer.setOptions(options);
+        writer.setInput(m_reader);
+
+        FixedPointTable table(100);
+        writer.prepare(table);
+        writer.execute(table);
+
+        tiledb::Array array(ctx, pth, TILEDB_READ);
+
+        tiledb::FilterList fl = array.schema().coords_filter_list();
+        EXPECT_EQ(fl.nfilters(), 2U);
+
+        tiledb::Filter f1 = fl.filter(0);
+        EXPECT_EQ(f1.filter_type(), TILEDB_FILTER_BITSHUFFLE);
+        tiledb::Filter f2 = fl.filter(1);
+        EXPECT_EQ(f2.filter_type(), TILEDB_FILTER_GZIP);
+        int32_t compressionLevel;
+        f2.get_option(TILEDB_COMPRESSION_LEVEL, &compressionLevel);
+        EXPECT_EQ(compressionLevel, 9);
+
+        tiledb::Attribute att = array.schema().attributes().begin()->second;
+        tiledb::FilterList flAtts = att.filter_list();
+        EXPECT_EQ(flAtts.nfilters(), 0U);
+    }
+
+#if TILEDB_VERSION_MAJOR > 1
+    TEST_F(TileDBWriterTest, dup_points)
+    {
+        Options reader_options;
+        FauxReader reader;
+        BOX3D bounds(1.0, 1.0, 1.0, 2.0, 2.0, 2.0);
+        reader_options.add("bounds", bounds);
+        reader_options.add("mode", "constant");
+        reader_options.add("count", count);
+        reader.setOptions(reader_options);
+
+        tiledb::Context ctx;
+        tiledb::VFS vfs(ctx);
+        std::string pth = Support::temppath("tiledb_test_dups");
+
+        Options writer_options;
+        writer_options.add("array_name", pth);
+
+        if (vfs.is_dir(pth))
+        {
+            vfs.remove_dir(pth);
+        }
+
+        TileDBWriter writer;
+        writer.setOptions(writer_options);
+        writer.setInput(reader);
+
+        FixedPointTable table(count);
+        writer.prepare(table);
+        writer.execute(table);
 
         tiledb::Array array(ctx, pth, TILEDB_READ);
         auto domain = array.non_empty_domain<double>();
@@ -188,7 +437,50 @@ namespace pdal
         q.submit();
         array.close();
 
-        EXPECT_EQ((m_reader.count() * 3) + (m_reader2.count() * 3), coords.size());
+        EXPECT_EQ(reader.count() * 3, coords.size());
+        for (const double& v : coords)
+            EXPECT_EQ(v, 1.0);
     }
-}
+#endif
 
+#if TILEDB_VERSION_MAJOR >= 2
+    #if ((TILEDB_VERSION_MINOR > 1) || (TILEDB_VERSION_MAJOR > 2))
+    TEST_F(TileDBWriterTest, sf_curve)
+    {
+        Options reader_options;
+        FauxReader reader;
+        BOX3D bounds(1.0, 1.0, 1.0, 2.0, 2.0, 2.0);
+        reader_options.add("bounds", bounds);
+        reader_options.add("mode", "constant");
+        reader_options.add("count", count);
+        reader.setOptions(reader_options);
+
+        tiledb::Context ctx;
+        tiledb::VFS vfs(ctx);
+        std::string pth = Support::temppath("tiledb_test_sf_curve");
+
+        Options writer_options;
+        writer_options.add("array_name", pth);
+        writer_options.add("x_tile_size", 0);
+        writer_options.add("y_tile_size", 0);
+        writer_options.add("z_tile_size", 0);
+
+        if (vfs.is_dir(pth))
+        {
+            vfs.remove_dir(pth);
+        }
+
+        TileDBWriter writer;
+        writer.setOptions(writer_options);
+        writer.setInput(reader);
+
+        FixedPointTable table(count);
+        writer.prepare(table);
+        writer.execute(table);
+
+        EXPECT_EQ(true,
+            tiledb::Object::object(ctx, pth).type() == tiledb::Object::Type::Array);
+    }
+    #endif
+#endif
+}

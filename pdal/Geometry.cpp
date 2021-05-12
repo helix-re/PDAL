@@ -32,8 +32,15 @@
 * OF SUCH DAMAGE.
 ****************************************************************************/
 
+#pragma warning(push)
+#pragma warning(disable: 4251)
+#include <ogr_api.h>
+#include <ogr_geometry.h>
+#pragma warning(pop)
+
 #include <pdal/Geometry.hpp>
-#include <pdal/GDALUtils.hpp>
+#include <pdal/private/gdal/GDALUtils.hpp>
+
 #include "private/SrsTransform.hpp"
 
 namespace pdal
@@ -83,6 +90,10 @@ Geometry::~Geometry()
 {}
 
 
+void Geometry::modified()
+{}
+
+
 void Geometry::update(const std::string& wkt_or_json)
 {
     bool isJson = (wkt_or_json.find("{") != wkt_or_json.npos) ||
@@ -114,13 +125,15 @@ void Geometry::update(const std::string& wkt_or_json)
     else if (m_geom)
         newGeom->assignSpatialReference(m_geom->getSpatialReference());
     m_geom.reset(newGeom);
+    modified();
 }
 
 
 Geometry& Geometry::operator=(const Geometry& input)
 {
     if (m_geom != input.m_geom)
-        *m_geom = *input.m_geom;
+        m_geom.reset(input.m_geom->clone());
+    modified();
     return *this;
 }
 
@@ -132,19 +145,26 @@ bool Geometry::srsValid() const
 }
 
 
-void Geometry::transform(const SpatialReference& out) const
+Utils::StatusWithReason Geometry::transform(SpatialReference out)
 {
+    using namespace Utils;
+
     if (!srsValid() && out.empty())
-        return;
+        return StatusWithReason();
 
     if (!srsValid())
-        throw pdal_error("Geometry::transform() failed.  NULL source SRS.");
+        return StatusWithReason(-2,
+            "Geometry::transform() failed.  NULL source SRS.");
     if (out.empty())
-        throw pdal_error("Geometry::transform() failed.  NULL target SRS.");
+        return StatusWithReason(-2,
+            "Geometry::transform() failed.  NULL target SRS.");
 
-    SrsTransform transform(getSpatialReference(), out);
+    OGRSpatialReference *inSrs = m_geom->getSpatialReference();
+    SrsTransform transform(*inSrs, OGRSpatialReference(out.getWKT().data()));
     if (m_geom->transform(transform.get()) != OGRERR_NONE)
-        throw pdal_error("Geometry::transform() failed.");
+        return StatusWithReason(-1, "Geometry::transform() failed.");
+    modified();
+    return StatusWithReason();
 }
 
 
@@ -168,7 +188,8 @@ SpatialReference Geometry::getSpatialReference() const
     if (srsValid())
     {
         char *buf;
-        m_geom->getSpatialReference()->exportToWkt(&buf);
+        const char *options[] = { "FORMAT=WKT2", nullptr };
+        m_geom->getSpatialReference()->exportToWkt(&buf, options);
         srs.set(buf);
         CPLFree(buf);
     }
@@ -221,13 +242,12 @@ std::string Geometry::wkt(double precision, bool bOutputZ) const
 
 std::string Geometry::json(double precision) const
 {
-    char **papszOptions = NULL;
+    CPLStringList aosOptions;
     std::string p(std::to_string((int)precision));
-    papszOptions = CSLSetNameValue(papszOptions, "COORDINATE_PRECISION",
-        p.data());
+    aosOptions.SetNameValue("COORDINATE_PRECISION", p.data());
 
     char* json = OGR_G_ExportToJsonEx(gdal::toHandle(m_geom.get()),
-        papszOptions);
+        aosOptions.List());
     std::string output(json);
     OGRFree(json);
     return output;

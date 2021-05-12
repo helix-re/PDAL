@@ -37,9 +37,31 @@
 #include <pdal/StageFactory.hpp>
 #include <io/FauxReader.hpp>
 #include <filters/TransformationFilter.hpp>
+#include "Support.hpp"
 
 namespace pdal
 {
+
+    auto check = [](const TransformationFilter::Transform& m)
+    {
+        EXPECT_DOUBLE_EQ(1, m[0]);
+        EXPECT_DOUBLE_EQ(0, m[1]);
+        EXPECT_DOUBLE_EQ(0, m[2]);
+        EXPECT_DOUBLE_EQ(0, m[3]);
+        EXPECT_DOUBLE_EQ(0, m[4]);
+        EXPECT_DOUBLE_EQ(1, m[5]);
+        EXPECT_DOUBLE_EQ(0, m[6]);
+        EXPECT_DOUBLE_EQ(0, m[7]);
+        EXPECT_DOUBLE_EQ(0, m[8]);
+        EXPECT_DOUBLE_EQ(0, m[9]);
+        EXPECT_DOUBLE_EQ(1, m[10]);
+        EXPECT_DOUBLE_EQ(0, m[11]);
+        EXPECT_DOUBLE_EQ(0, m[12]);
+        EXPECT_DOUBLE_EQ(0, m[13]);
+        EXPECT_DOUBLE_EQ(0, m[14]);
+        EXPECT_DOUBLE_EQ(1, m[15]);
+    };
+
 
 
 class TransformationFilterTest : public ::testing::Test
@@ -74,26 +96,6 @@ TEST(TransformationMatrix, create)
 
 TEST(TransformationMatrix, init)
 {
-    auto check = [](const TransformationFilter::Transform& m)
-    {
-        EXPECT_DOUBLE_EQ(1, m[0]);
-        EXPECT_DOUBLE_EQ(0, m[1]);
-        EXPECT_DOUBLE_EQ(0, m[2]);
-        EXPECT_DOUBLE_EQ(0, m[3]);
-        EXPECT_DOUBLE_EQ(0, m[4]);
-        EXPECT_DOUBLE_EQ(1, m[5]);
-        EXPECT_DOUBLE_EQ(0, m[6]);
-        EXPECT_DOUBLE_EQ(0, m[7]);
-        EXPECT_DOUBLE_EQ(0, m[8]);
-        EXPECT_DOUBLE_EQ(0, m[9]);
-        EXPECT_DOUBLE_EQ(1, m[10]);
-        EXPECT_DOUBLE_EQ(0, m[11]);
-        EXPECT_DOUBLE_EQ(0, m[12]);
-        EXPECT_DOUBLE_EQ(0, m[13]);
-        EXPECT_DOUBLE_EQ(0, m[14]);
-        EXPECT_DOUBLE_EQ(1, m[15]);
-    };
-
     std::string s = "1 0 0 0\n0 1 0 0\n0 0 1 0\n0 0 0 1";
     TransformationFilter::Transform m;
 
@@ -171,6 +173,27 @@ TEST_F(TransformationFilterTest, Translation)
 }
 
 
+TEST_F(TransformationFilterTest, InvertTranslation)
+{
+    Options filterOpts;
+    filterOpts.add("matrix", "1 0 0 1\n0 1 0 2\n0 0 1 3\n0 0 0 1");
+    filterOpts.add("invert", true);
+    m_filter.setOptions(filterOpts);
+
+    PointTable table;
+    m_filter.prepare(table);
+    PointViewSet viewSet = m_filter.execute(table);
+    PointViewPtr view = *viewSet.begin();
+
+    for (point_count_t i = 0; i < view->size(); ++i)
+    {
+        EXPECT_DOUBLE_EQ(0, view->getFieldAs<double>(Dimension::Id::X, i));
+        EXPECT_DOUBLE_EQ(0, view->getFieldAs<double>(Dimension::Id::Y, i));
+        EXPECT_DOUBLE_EQ(0, view->getFieldAs<double>(Dimension::Id::Z, i));
+    }
+}
+
+
 TEST_F(TransformationFilterTest, Rotation)
 {
     Options filterOpts;
@@ -190,6 +213,30 @@ TEST_F(TransformationFilterTest, Rotation)
     }
 }
 
+
+TEST_F(TransformationFilterTest, InvertRotation)
+{
+    Options filterOpts;
+    filterOpts.add("matrix", "0 1 0 0\n-1 0 0 0\n0 0 1 0\n0 0 0 1");
+    filterOpts.add("invert", true);
+    m_filter.setOptions(filterOpts);
+
+    PointTable table;
+    m_filter.prepare(table);
+    PointViewSet viewSet = m_filter.execute(table);
+    EXPECT_EQ(1u, viewSet.size());
+    PointViewPtr view = *viewSet.begin();
+    EXPECT_EQ(3u, view->size());
+
+    for (point_count_t i = 0; i < view->size(); ++i)
+    {
+        EXPECT_DOUBLE_EQ(-2, view->getFieldAs<double>(Dimension::Id::X, i));
+        EXPECT_DOUBLE_EQ(1, view->getFieldAs<double>(Dimension::Id::Y, i));
+        EXPECT_DOUBLE_EQ(3, view->getFieldAs<double>(Dimension::Id::Z, i));
+    }
+}
+
+
 TEST_F(TransformationFilterTest, SrsReset)
 {
     TransformationFilter::Transform ident { { 1, 0, 0, 0,
@@ -207,7 +254,42 @@ TEST_F(TransformationFilterTest, SrsReset)
     PointViewSet viewSet = m_filter.execute(table);
     PointViewPtr view = *viewSet.begin();
 
-    EXPECT_EQ(view->spatialReference(), SpatialReference("EPSG:3857"));
+    EXPECT_EQ(view->spatialReference(), "EPSG:3857");
 }
+
+TEST(TransformationMatrix, init_file_oneline)
+{
+
+    std::string s = Support::datapath("filters/transform-oneline.txt");
+    TransformationFilter::Transform m;
+
+    std::stringstream iss(s);
+    iss >> m;
+    check(m);
+
+    TransformationFilter::Transform n { { 1, 0, 0, 0,
+                                          0, 1, 0, 0,
+                                          0, 0, 1, 0,
+                                          0, 0, 0, 1 } };
+    check(n);
+}
+
+TEST(TransformationMatrix, init_file_multiline)
+{
+
+    std::string s = Support::datapath("filters/transform-newlines.txt");
+    TransformationFilter::Transform m;
+
+    std::stringstream iss(s);
+    iss >> m;
+    check(m);
+
+    TransformationFilter::Transform n { { 1, 0, 0, 0,
+                                          0, 1, 0, 0,
+                                          0, 0, 1, 0,
+                                          0, 0, 0, 1 } };
+    check(n);
+}
+
 
 }

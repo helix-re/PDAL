@@ -36,6 +36,7 @@
 
 #include <cstdint>
 #include <sstream>
+#include <stdexcept>
 
 #include "pdal_util_export.hpp"
 
@@ -285,7 +286,7 @@ public:
     }
 
     /**
-      Return a staticly-allocated Bounds extent that represents infinity
+      Return a statically-allocated Bounds extent that represents infinity
 
       \return  A bounds box with infinite bounds,
     */
@@ -592,7 +593,7 @@ public:
     }
 
     /**
-      Return a staticly-allocated Bounds extent that represents infinity
+      Return a statically-allocated Bounds extent that represents infinity
 
       \return  A bounds box with infinite bounds,
     */
@@ -630,6 +631,8 @@ public:
     BOX3D to3d() const;
     BOX2D to2d() const;
     bool is3d() const;
+    void reset(const BOX3D& box);
+    void reset(const BOX2D& box);
     void grow(double x, double y);
     void grow(double x, double y, double z);
     void parse(const std::string& s, std::string::size_type& pos);

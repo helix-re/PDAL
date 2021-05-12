@@ -36,8 +36,32 @@
 namespace pdal
 {
 
+SrsTransform::SrsTransform(const SpatialReference& src, const SpatialReference& dst) :
+    SrsTransform(OGRSpatialReference(src.getWKT().data()),
+                 OGRSpatialReference(dst.getWKT().data()))
+{}
+
+
+SrsTransform::SrsTransform(OGRSpatialReference srcRef, OGRSpatialReference dstRef)
+{
+// Starting with version 3 of GDAL, the axes (X, Y, Z or lon, lat, h or whatever)
+// are mapped according to the WKT definition.  In particular, this means
+// that for EPSG:4326 the mapping is X -> lat, Y -> lon, rather than the
+// more conventional X -> lon, Y -> lat.  Setting this flag reverses things
+// such that the traditional ordering is maintained.  There are other
+// SRSes where this comes up.  See "axis order issues" in the GDAL WKT2
+// discussion for more info.
+//
+    srcRef.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    dstRef.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    m_transform.reset(OGRCreateCoordinateTransformation(&srcRef, &dstRef));
+}
+
+
 SrsTransform::SrsTransform(const SpatialReference& src,
-    const SpatialReference& dst)
+                           std::vector<int> srcOrder,
+                           const SpatialReference& dst,
+                           std::vector<int> dstOrder)
 {
     OGRSpatialReference srcRef(src.getWKT().data());
     OGRSpatialReference dstRef(dst.getWKT().data());
@@ -50,10 +74,10 @@ SrsTransform::SrsTransform(const SpatialReference& src,
 // SRSes where this comes up.  See "axis order issues" in the GDAL WKT2
 // discussion for more info.
 //
-#if GDAL_VERSION_MAJOR >= 3
-    srcRef.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    dstRef.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-#endif
+    if (srcOrder.size())
+        srcRef.SetDataAxisToSRSAxisMapping(srcOrder);
+    if (dstOrder.size())
+        dstRef.SetDataAxisToSRSAxisMapping(dstOrder);
     m_transform.reset(OGRCreateCoordinateTransformation(&srcRef, &dstRef));
 }
 
@@ -67,14 +91,14 @@ OGRCoordinateTransformation *SrsTransform::get() const
 }
 
 
-bool SrsTransform::transform(double& x, double& y, double& z)
+bool SrsTransform::transform(double& x, double& y, double& z) const
 {
     return m_transform && m_transform->Transform(1, &x, &y, &z);
 }
 
 
 bool SrsTransform::transform(std::vector<double>& x, std::vector<double>& y,
-    std::vector<double>& z)
+    std::vector<double>& z) const
 {
     if (x.size() != y.size() && y.size() != z.size())
         throw pdal_error("SrsTransform::called with vectors of different "

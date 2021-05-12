@@ -34,7 +34,7 @@
 
 #pragma once
 
-#include <E57Format.h>
+
 #include <pdal/Streamable.hpp>
 #include <pdal/Writer.hpp>
 #include <pdal/pdal_types.hpp>
@@ -66,7 +66,9 @@ class PDAL_DLL E57Writer : public pdal::Writer, public pdal::Streamable
             if (m_intensityLimit != 1)
             {
                 return m_intensityLimit - 1;
-			}
+
+            }
+
             return m_intensityLimit;
         }
 
